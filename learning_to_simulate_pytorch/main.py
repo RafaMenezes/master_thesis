@@ -1,27 +1,14 @@
 import os
 import json
-# import pickle
 import numpy as np
 import torch
 import argparse
-# from pathlib import Path
 
-# from model_utils import get_random_walk_noise_for_position_sequence
-# from tf_data_reader import prepare_data_from_tfds
 from learned_simulator import Simulator
 from train import train
 from infer import infer
 
-# from torch.utils.tensorboard import SummaryWriter
-
-
-# INPUT_SEQUENCE_LENGTH = 6
-# batch_size = 2
 noise_std = 6.7e-4
-# training_steps = int(1e2)
-# log_steps = 5
-# eval_steps = 20
-# save_steps = 100
 
 
 def main():
