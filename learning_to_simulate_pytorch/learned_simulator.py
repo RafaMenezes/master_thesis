@@ -86,9 +86,40 @@ class Processor(MessagePassing):
             ) for _ in range(num_message_passing_steps)])
 
     def forward(self, x, edge_index, e_features):
+        # for gnn in self.gnn_stacks:
+        #     x, e_features = gnn(x, edge_index, e_features)
+        # return x, e_features
+        filtered_edge_index, mask = self.filter_edges(edge_index)
+        filtered_e_features = e_features[mask]
+
         for gnn in self.gnn_stacks:
-            x, e_features = gnn(x, edge_index, e_features)
+            x, filtered_e_features = gnn(x, filtered_edge_index, filtered_e_features)
+        
+        # Post-process to handle reverse edges
+        reverse_edge_index = torch.stack([edge_index[1], edge_index[0]], dim=0)
+        reverse_edge_map = {tuple(e): idx for idx, e in enumerate(filtered_edge_index.T.tolist())}
+        
+        for idx, (i, j) in enumerate(reverse_edge_index.T.tolist()):
+            if (i, j) in reverse_edge_map:
+                e_features[idx] = -filtered_e_features[reverse_edge_map[(i, j)]]
+
         return x, e_features
+
+    def filter_edges(self, edge_index):
+        """
+        Filter out half of the edges by keeping only one direction for each pair (i, j).
+        Assumes edge_index is of shape (2, E).
+        """
+        edge_set = set()
+        keep_indices = []
+
+        for idx, (i, j) in enumerate(zip(edge_index[0], edge_index[1])):
+            if (j.item(), i.item()) not in edge_set:
+                edge_set.add((i.item(), j.item()))
+                keep_indices.append(idx)
+
+        mask = torch.tensor(keep_indices, dtype=torch.long)
+        return edge_index[:, keep_indices], mask
 
 class Decoder(nn.Module):
     def __init__(

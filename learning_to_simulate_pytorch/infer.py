@@ -69,6 +69,7 @@ def eval_rollout(ds, simulator, num_steps, num_eval_steps=1, save_results=False,
                 with open(filename, 'wb') as f:
                     pickle.dump(example_rollout, f)
             i += 1
+            print(f'{i} / {num_eval_steps}')
             if i >= num_eval_steps:
                 break
     simulator.train()
