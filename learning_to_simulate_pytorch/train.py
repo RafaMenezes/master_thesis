@@ -73,13 +73,14 @@ def train(
             loss.backward()
             optimizer.step()
 
-            running_loss += loss.item() / features.size(0)
+            
 
             lr_new = lr_init * (lr_decay ** (step/lr_decay_steps))
             for g in optimizer.param_groups:
                 g['lr'] = lr_new
 
             step += 1
+            running_loss += loss.item() / step
             print(f'Training step: {step}/{training_steps}. Loss: {loss}.', end="\r",)
             if step >= training_steps:
                 break
@@ -92,4 +93,3 @@ def train(
 
     simulator.save(model_path)
     print("Total running loss was: ", running_loss)
-    
