@@ -40,6 +40,7 @@ def train(
 
     step = 0
     try:
+        running_loss = 0.0
         for features, labels in ds:
             features['position'] = torch.tensor(features['position']).to(device)
             features['n_particles_per_example'] = torch.tensor(features['n_particles_per_example']).to(device)
@@ -72,6 +73,8 @@ def train(
             loss.backward()
             optimizer.step()
 
+            running_loss += loss.item() / features.size(0)
+
             lr_new = lr_init * (lr_decay ** (step/lr_decay_steps))
             for g in optimizer.param_groups:
                 g['lr'] = lr_new
@@ -88,4 +91,5 @@ def train(
         pass
 
     simulator.save(model_path)
+    print("Total running loss was: ", running_loss)
     
