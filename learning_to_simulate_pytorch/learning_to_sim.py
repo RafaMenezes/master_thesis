@@ -1,8 +1,76 @@
+import os
+import json
+import pickle
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import MessagePassing, radius_graph
-from model_utils import build_mlp, time_diff
+
+from torch.utils.tensorboard import SummaryWriter
+os.makedirs('train_log', exist_ok=True)
+os.makedirs('rollouts', exist_ok=True)
+
+INPUT_SEQUENCE_LENGTH = 6
+batch_size = 2
+noise_std = 6.7e-4
+training_steps = int(1e6)
+log_steps = 5
+eval_steps = 20
+save_steps = 100
+model_path = None #os.path.join(os.path.dirname(os.path.realpath(__file__)), 'train_log/run6/model.pth')
+device = 'cuda'
+with open('data/metadata.json', 'rt') as f:
+    metadata = json.loads(f.read())
+num_steps = metadata['sequence_length'] - INPUT_SEQUENCE_LENGTH
+normalization_stats = {
+    'acceleration': {
+        'mean':torch.FloatTensor(metadata['acc_mean']).to(device), 
+        'std':torch.sqrt(torch.FloatTensor(metadata['acc_std'])**2 + noise_std**2).to(device),
+    }, 
+    'velocity': {
+        'mean':torch.FloatTensor(metadata['vel_mean']).to(device), 
+        'std':torch.sqrt(torch.FloatTensor(metadata['vel_std'])**2 + noise_std**2).to(device),
+    }, 
+}
+
+def build_mlp(
+    input_size,
+    layer_sizes,
+    output_size=None,
+    output_activation=torch.nn.Identity,
+    activation=torch.nn.ReLU,
+):
+    sizes = [input_size] + layer_sizes
+    if output_size:
+        sizes.append(output_size)
+
+    layers = []
+    for i in range(len(sizes) - 1):
+        act = activation if i < len(sizes) - 2 else output_activation
+        layers += [torch.nn.Linear(sizes[i], sizes[i + 1]), act()]
+    return torch.nn.Sequential(*layers)
+
+def time_diff(input_sequence):
+    return input_sequence[:, 1:] - input_sequence[:, :-1]
+
+def get_random_walk_noise_for_position_sequence(position_sequence, noise_std_last_step):
+    """Returns random-walk noise in the velocity applied to the position."""
+    velocity_sequence = time_diff(position_sequence)
+    num_velocities = velocity_sequence.shape[1]
+    velocity_sequence_noise = torch.randn(list(velocity_sequence.shape)) * (noise_std_last_step/num_velocities**0.5)
+
+    velocity_sequence_noise = torch.cumsum(velocity_sequence_noise, dim=1)
+
+    position_sequence_noise = torch.cat([
+        torch.zeros_like(velocity_sequence_noise[:, 0:1]),
+        torch.cumsum(velocity_sequence_noise, dim=1)], dim=1)
+
+    return position_sequence_noise
+
+def _read_metadata(data_path):
+    with open(os.path.join(data_path, 'metadata.json'), 'rt') as fp:
+        return json.loads(fp.read())
 
 class Encoder(nn.Module):
     def __init__(
@@ -89,38 +157,6 @@ class Processor(MessagePassing):
         for gnn in self.gnn_stacks:
             x, e_features = gnn(x, edge_index, e_features)
         return x, e_features
-        # filtered_edge_index, mask = self.filter_edges(edge_index)
-        # filtered_e_features = e_features[mask]
-
-        # for gnn in self.gnn_stacks:
-        #     x, filtered_e_features = gnn(x, filtered_edge_index, filtered_e_features)
-        
-        # e_features[mask] = filtered_e_features
-        # # Post-process to handle reverse edges
-        # reverse_edge_index = torch.stack([edge_index[1], edge_index[0]], dim=0)
-        # reverse_edge_map = {tuple(e): idx for idx, e in enumerate(reverse_edge_index.T.tolist())}
-        
-        # for idx, (i, j) in enumerate(edge_index.T.tolist()):
-        #     if idx not in mask:
-        #         e_features[reverse_edge_map[(j, i)]] = -e_features[reverse_edge_map[(i, j)]]
-
-        # return x, e_features
-
-    def filter_edges(self, edge_index):
-        """
-        Filter out half of the edges by keeping only one direction for each pair (i, j).
-        Assumes edge_index is of shape (2, E).
-        """
-        edge_set = set()
-        keep_indices = []
-
-        for idx, (i, j) in enumerate(zip(edge_index[0], edge_index[1])):
-            if (j.item(), i.item()) not in edge_set:
-                edge_set.add((i.item(), j.item()))
-                keep_indices.append(idx)
-
-        mask = torch.tensor(keep_indices, dtype=torch.long)
-        return edge_index[:, keep_indices], mask
 
 class Decoder(nn.Module):
     def __init__(
@@ -318,8 +354,217 @@ class Simulator(nn.Module):
         normalized_acceleration = (acceleration - acceleration_stats['mean']) / acceleration_stats['std']
         return normalized_acceleration
 
-    def save(self, path):
+    def save(self, path='model.pth'):
         torch.save(self.state_dict(), path)
 
     def load(self, path):
         self.load_state_dict(torch.load(path))
+
+def prepare_data_from_tfds(data_path='data/train.tfrecord', is_rollout=False, batch_size=2):
+    import functools
+    import tensorflow.compat.v1 as tf
+    import tensorflow_datasets as tfds
+    import reading_utils
+    import tree
+    from tfrecord.torch.dataset import TFRecordDataset
+    def prepare_inputs(tensor_dict):
+        pos = tensor_dict['position']
+        pos = tf.transpose(pos, perm=[1, 0, 2])
+        target_position = pos[:, -1]
+        tensor_dict['position'] = pos[:, :-1]
+        num_particles = tf.shape(pos)[0]
+        tensor_dict['n_particles_per_example'] = num_particles[tf.newaxis]
+        if 'step_context' in tensor_dict:
+            tensor_dict['step_context'] = tensor_dict['step_context'][-2]
+            tensor_dict['step_context'] = tensor_dict['step_context'][tf.newaxis]
+        return tensor_dict, target_position
+    def batch_concat(dataset, batch_size):
+        windowed_ds = dataset.window(batch_size)
+        initial_state = tree.map_structure(lambda spec: tf.zeros(shape=[0] + spec.shape.as_list()[1:], dtype=spec.dtype),dataset.element_spec)
+        def reduce_window(initial_state, ds):
+            return ds.reduce(initial_state, lambda x, y: tf.concat([x, y], axis=0))
+        return windowed_ds.map(lambda *x: tree.map_structure(reduce_window, initial_state, x))
+    def prepare_rollout_inputs(context, features):
+        out_dict = {**context}
+        pos = tf.transpose(features['position'], [1, 0, 2])
+        target_position = pos[:, -1]
+        out_dict['position'] = pos[:, :-1]
+        out_dict['n_particles_per_example'] = [tf.shape(pos)[0]]
+        if 'step_context' in features:
+            out_dict['step_context'] = features['step_context']
+        out_dict['is_trajectory'] = tf.constant([True], tf.bool)
+        return out_dict, target_position
+
+    metadata = _read_metadata('data/')
+    ds = tf.data.TFRecordDataset([data_path])
+    ds = ds.map(functools.partial(reading_utils.parse_serialized_simulation_example, metadata=metadata))
+    if is_rollout:
+        ds = ds.map(prepare_rollout_inputs)
+    else:    
+        split_with_window = functools.partial(
+            reading_utils.split_trajectory,
+            window_length=6 + 1)
+        ds = ds.flat_map(split_with_window)
+        ds = ds.map(prepare_inputs)
+        ds = ds.repeat()
+        ds = ds.shuffle(512)
+        ds = batch_concat(ds, batch_size)
+    ds = tfds.as_numpy(ds)
+    for i in range(100): # clear screen
+        print()
+    return ds
+
+def eval_single_rollout(simulator, features, num_steps, device):
+    initial_positions = features['position'][:, 0:INPUT_SEQUENCE_LENGTH]
+    ground_truth_positions = features['position'][:, INPUT_SEQUENCE_LENGTH:]
+    
+    current_positions = initial_positions
+    predictions = []
+    for step in range(num_steps):
+        next_position = simulator.predict_positions(
+            current_positions,
+            n_particles_per_example=features['n_particles_per_example'],
+            particle_types=features['particle_type'],
+        ) # (n_nodes, 2)
+        # Update kinematic particles from prescribed trajectory.
+        kinematic_mask = (features['particle_type'] == 3).clone().detach().to(device)
+        next_position_ground_truth = ground_truth_positions[:, step]
+        kinematic_mask = kinematic_mask.bool()[:, None].expand(-1, 2)
+        next_position = torch.where(kinematic_mask, next_position_ground_truth, next_position)
+        predictions.append(next_position)
+        current_positions = torch.cat([current_positions[:, 1:], next_position[:, None, :]], dim=1)
+    predictions = torch.stack(predictions) # (time, n_nodes, 2)
+    ground_truth_positions = ground_truth_positions.permute(1,0,2)
+    loss = (predictions - ground_truth_positions) ** 2
+    output_dict = {
+        'initial_positions': initial_positions.permute(1,0,2).cpu().numpy(),
+        'predicted_rollout': predictions.cpu().numpy(),
+        'ground_truth_rollout': ground_truth_positions.cpu().numpy(),
+        'particle_types': features['particle_type'].cpu().numpy(),
+    }
+    return output_dict, loss
+
+def eval_rollout(ds, simulator, num_steps, num_eval_steps=1, save_results=False, device='cuda'):
+    eval_loss = []
+    i = 0
+    simulator.eval()
+    with torch.no_grad():
+        for example_i, (features, labels) in enumerate(ds):
+            features['position'] = torch.tensor(features['position']).to(device) # (n_nodes, 600, 2)
+            features['n_particles_per_example'] = torch.tensor(features['n_particles_per_example']).to(device)
+            features['particle_type'] = torch.tensor(features['particle_type']).to(device)
+            labels = torch.tensor(labels).to(device)
+            example_rollout, loss = eval_single_rollout(simulator, features, num_steps, device)
+            example_rollout['metadata'] = metadata
+            eval_loss.append(loss)
+            if save_results:
+                example_rollout['metadata'] = metadata
+                filename = f'rollout_{example_i}.pkl'
+                filename = os.path.join('rollouts/', filename)
+                with open(filename, 'wb') as f:
+                    pickle.dump(example_rollout, f)
+            i += 1
+            if i >= num_eval_steps:
+                break
+    simulator.train()
+    return torch.stack(eval_loss).mean(0)
+
+def train(simulator):
+    i = 0
+    while os.path.isdir('train_log/run'+str(i)):
+        i += 1
+    LOG_DIR = 'train_log/run'+str(i)+'/'
+
+    writer = SummaryWriter(LOG_DIR)
+
+    lr_init = 1e-4
+    lr_min = 1e-6
+    lr_decay = 0.1
+    lr_decay_steps = int(5e6)
+    lr_new = lr_init
+    optimizer = torch.optim.Adam(simulator.parameters(), lr=lr_init)
+
+    ds = prepare_data_from_tfds(batch_size=batch_size)
+    # ds_eval = prepare_data_from_tfds(data_path='data/valid.tfrecord', is_rollout=True)
+
+    step = 0
+    try:
+        for features, labels in ds:
+            features['position'] = torch.tensor(features['position']).to(device)
+            features['n_particles_per_example'] = torch.tensor(features['n_particles_per_example']).to(device)
+            features['particle_type'] = torch.tensor(features['particle_type']).to(device)
+            labels = torch.tensor(labels).to(device)
+
+            sampled_noise = get_random_walk_noise_for_position_sequence(features['position'], noise_std_last_step=noise_std).to(device)
+            non_kinematic_mask = (features['particle_type'] != 3).clone().detach().to(device)
+            sampled_noise *= non_kinematic_mask.view(-1, 1, 1)
+
+            pred, target = simulator.predict_accelerations(
+                next_position=labels, 
+                position_sequence_noise=sampled_noise, 
+                position_sequence=features['position'], 
+                n_particles_per_example=features['n_particles_per_example'], 
+                particle_types=features['particle_type'],
+            )
+            loss = (pred - target) ** 2
+            loss = loss.sum(dim=-1)
+            num_non_kinematic = non_kinematic_mask.sum()
+
+            loss = torch.where(non_kinematic_mask.bool(), loss, torch.zeros_like(loss))
+            loss = loss.sum() / num_non_kinematic
+
+            if step % log_steps == 0:
+                writer.add_scalar("training_loss", loss, step)
+                writer.add_scalar("lr", lr_new, step)
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            lr_new = lr_init * (lr_decay ** (step/lr_decay_steps))
+            for g in optimizer.param_groups:
+                g['lr'] = lr_new
+
+            step += 1
+            print(f'Training step: {step}/{training_steps}. Loss: {loss}.', end="\r",)
+            if step >= training_steps == 0:
+                break
+
+            # if step % eval_steps == 0:
+            #     eval_loss = eval_rollout(ds_eval, simulator, num_steps, num_eval_steps=10, device=device)
+            #     writer.add_scalar("eval_loss", eval_loss, step)
+
+            if step % save_steps == 0:
+                simulator.save(LOG_DIR+'model.pth')
+
+    except KeyboardInterrupt:
+        pass
+
+    simulator.save(LOG_DIR+'model.pth')
+
+def infer(simulator):
+    ds = prepare_data_from_tfds(data_path='data/valid.tfrecord', is_rollout=True)
+    eval_rollout(ds, simulator, num_steps=num_steps, save_results=True, device=device)
+
+if __name__ == '__main__':
+    simulator = Simulator(
+        particle_dimension=2,
+        node_in=30,
+        edge_in=3,
+        latent_dim=128,
+        num_message_passing_steps=10,
+        mlp_num_layers=2,
+        mlp_hidden_dim=128,
+        connectivity_radius=metadata['default_connectivity_radius'],
+        boundaries=np.array(metadata['bounds']),
+        normalization_stats=normalization_stats,
+        num_particle_types=9,
+        particle_type_embedding_size=16,
+        device=device,
+    )
+    if model_path is not None:
+        simulator.load(model_path)
+    if device == 'cuda':
+        simulator.cuda()
+    train(simulator)
+    # infer(simulator)
