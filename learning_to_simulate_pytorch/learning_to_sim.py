@@ -14,7 +14,7 @@ os.makedirs('rollouts', exist_ok=True)
 INPUT_SEQUENCE_LENGTH = 6
 batch_size = 2
 noise_std = 6.7e-4
-training_steps = int(1e6)
+training_steps = int(1e7)
 log_steps = 5
 eval_steps = 20
 save_steps = 100
@@ -534,13 +534,13 @@ def train(simulator):
             #     eval_loss = eval_rollout(ds_eval, simulator, num_steps, num_eval_steps=10, device=device)
             #     writer.add_scalar("eval_loss", eval_loss, step)
 
-            if step % save_steps == 0:
-                simulator.save(LOG_DIR+'model.pth')
+            # if step % save_steps == 0:
+            #     simulator.save(LOG_DIR+'model_original.pth')
 
     except KeyboardInterrupt:
         pass
 
-    simulator.save(LOG_DIR+'model.pth')
+    simulator.save(LOG_DIR+'model_original.pth')
 
 def infer(simulator):
     ds = prepare_data_from_tfds(data_path='data/valid.tfrecord', is_rollout=True)

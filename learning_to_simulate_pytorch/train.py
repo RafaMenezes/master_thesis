@@ -18,7 +18,7 @@ def train(
         simulator, 
         training_steps=int(1e6), 
         data_path="data/train.tfrecord", 
-        model_path="model/model.pth", 
+        model_path="model.pth", 
         device="cpu"
     ):
     i = 0
@@ -86,10 +86,10 @@ def train(
                 break
 
             if step % save_steps == 0:
-                simulator.save(LOG_DIR+'model.pth')
+                simulator.save(LOG_DIR+model_path)
 
     except KeyboardInterrupt:
         pass
 
-    simulator.save(model_path)
+    simulator.save(LOG_DIR+model_path)
     print("Total running loss was: ", running_loss)

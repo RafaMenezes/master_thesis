@@ -52,9 +52,18 @@ class InteractionNetwork(MessagePassing):
         return x+x_residual, e_features+e_features_residual
 
     def message(self, edge_index, x_i, x_j, e_features):
-        e_features = torch.cat([x_i, x_j, e_features], dim=-1)
-        e_features = self.edge_fn(e_features)
-        return e_features
+        e_features_ij = torch.cat([x_i, x_j, e_features], dim=-1)
+        e_features_ij = self.edge_fn(e_features_ij)
+
+
+        edge_dict = {(i.item(), j.item()): idx for idx, (i, j) in enumerate(zip(edge_index[0], edge_index[1]))}
+        reverse_index = [edge_dict[(j.item(), i.item())] for i, j in zip(edge_index[0], edge_index[1])]
+        
+        # Create a symmetric e_features matrix
+        e_features_ji = e_features_ij
+        e_features_ji[reverse_index] = -e_features_ij
+
+        return e_features_ji
 
     def update(self, x_updated, x, e_features):
         # x_updated: (E, edge_out)
@@ -111,6 +120,24 @@ class Processor(MessagePassing):
         Filter out half of the edges by keeping only one direction for each pair (i, j).
         Assumes edge_index is of shape (2, E).
         """
+        # edge_index_transposed = edge_index.t()
+
+        # # Shuffle the rows
+        # shuffled_indices = torch.randperm(edge_index_transposed.size(0))
+        # shuffled_edge_index_transposed = edge_index_transposed[shuffled_indices]
+
+        # # Transpose back to original form
+        # shuffled_edge_index = shuffled_edge_index_transposed.t()
+        # edge_set = set()
+        # keep_indices = []
+
+        # for idx, (i, j) in enumerate(zip(shuffled_edge_index[0], shuffled_edge_index[1])):
+        #     if (j.item(), i.item()) not in edge_set:
+        #         edge_set.add((i.item(), j.item()))
+        #         keep_indices.append(idx)
+
+        # mask = torch.tensor(keep_indices, dtype=torch.long)
+        # return shuffled_edge_index[:, keep_indices], mask
         edge_set = set()
         keep_indices = []
 
