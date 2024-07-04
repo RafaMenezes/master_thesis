@@ -52,18 +52,77 @@ class InteractionNetwork(MessagePassing):
         return x+x_residual, e_features+e_features_residual
 
     def message(self, edge_index, x_i, x_j, e_features):
-        e_features_ij = torch.cat([x_i, x_j, e_features], dim=-1)
-        e_features_ij = self.edge_fn(e_features_ij)
+        e_features = torch.cat([x_i, x_j, e_features], dim=-1)
+        e_features = self.edge_fn(e_features)
+        # print(edge_index.shape)
+        # for idx, (i, j) in enumerate(zip(edge_index[0], edge_index[1])):
+        #     if i > :j
+        #         try:
+        #             opposing_edge = (j, i)
+        #             opposing_edge_indices = (edge_index[0] == opposing_edge[0]) & (edge_index[1] == opposing_edge[1])
+        #             opposing_edge_index = torch.where(opposing_edge_indices)[0].item()
+        #             avg_features = (e_features[idx] + e_features[opposing_edge_index])/2
+
+        #             e_features[idx] = avg_features
+        #             e_features[opposing_edge_index] = avg_features
+        #         except RuntimeError:
+        #             print('found no opposing edge')
+        #             continue
 
 
-        edge_dict = {(i.item(), j.item()): idx for idx, (i, j) in enumerate(zip(edge_index[0], edge_index[1]))}
-        reverse_index = [edge_dict[(j.item(), i.item())] for i, j in zip(edge_index[0], edge_index[1])]
-        
-        # Create a symmetric e_features matrix
-        e_features_ji = e_features_ij
-        e_features_ji[reverse_index] = -e_features_ij
+        return e_features
 
-        return e_features_ji
+    def update(self, x_updated, x, e_features):
+        # x_updated: (E, edge_out)
+        # x: (E, node_in)
+        x_updated = torch.cat([x_updated, x], dim=-1)
+        x_updated = self.node_fn(x_updated)
+        return x_updated, e_features
+    
+class SymmetricInteractionNetwork(MessagePassing):
+    def __init__(
+        self, 
+        node_in, 
+        node_out, 
+        edge_in, 
+        edge_out,
+        mlp_num_layers,
+        mlp_hidden_dim,
+    ):
+        super().__init__(aggr='add')
+        self.node_fn = nn.Sequential(*[build_mlp(node_in+edge_out, [mlp_hidden_dim for _ in range(mlp_num_layers)], node_out), 
+            nn.LayerNorm(node_out)])
+        self.edge_fn = nn.Sequential(*[build_mlp(node_in+node_in+edge_in, [mlp_hidden_dim for _ in range(mlp_num_layers)], edge_out), 
+            nn.LayerNorm(edge_out)])
+
+    def forward(self, x, edge_index, e_features):
+        # x: (E, node_in)
+        # edge_index: (2, E)
+        # e_features: (E, edge_in)
+        x_residual = x
+        e_features_residual = e_features
+        x, e_features = self.propagate(edge_index=edge_index, x=x, e_features=e_features)
+        return x+x_residual, e_features+e_features_residual
+
+    def message(self, edge_index, x_i, x_j, e_features):
+        e_features = torch.cat([x_i, x_j, e_features], dim=-1)
+        e_features = self.edge_fn(e_features)
+
+        for idx, (i, j) in enumerate(zip(edge_index[0], edge_index[1])):
+            if i > j:
+                try:
+                    opposing_edge = (j, i)
+                    opposing_edge_indices = (edge_index[0] == opposing_edge[0]) & (edge_index[1] == opposing_edge[1])
+                    opposing_edge_index = torch.where(opposing_edge_indices)[0].item()
+                    avg_features = (e_features[idx] + e_features[opposing_edge_index])/2
+
+                    e_features[idx] = avg_features
+                    e_features[opposing_edge_index] = avg_features
+                except RuntimeError:
+                    print('found no opposing edge')
+                    continue
+
+        return e_features
 
     def update(self, x_updated, x, e_features):
         # x_updated: (E, edge_out)
@@ -93,61 +152,24 @@ class Processor(MessagePassing):
                 mlp_num_layers=mlp_num_layers,
                 mlp_hidden_dim=mlp_hidden_dim,
             ) for _ in range(num_message_passing_steps)])
+        
+        self.symm_layer = SymmetricInteractionNetwork(
+            node_in=node_in, 
+            node_out=node_out,
+            edge_in=edge_in, 
+            edge_out=edge_out,
+            mlp_num_layers=mlp_num_layers,
+            mlp_hidden_dim=mlp_hidden_dim
+        )
 
     def forward(self, x, edge_index, e_features):
         for gnn in self.gnn_stacks:
             x, e_features = gnn(x, edge_index, e_features)
+
+        # Symmetric message passing layer
+        x, e_features = self.symm_layer(x, edge_index, e_features)
+
         return x, e_features
-        # filtered_edge_index, mask = self.filter_edges(edge_index)
-        # filtered_e_features = e_features[mask]
-
-        # for gnn in self.gnn_stacks:
-        #     x, filtered_e_features = gnn(x, filtered_edge_index, filtered_e_features)
-        
-        # e_features[mask] = filtered_e_features
-        # # Post-process to handle reverse edges
-        # reverse_edge_index = torch.stack([edge_index[1], edge_index[0]], dim=0)
-        # reverse_edge_map = {tuple(e): idx for idx, e in enumerate(reverse_edge_index.T.tolist())}
-        
-        # for idx, (i, j) in enumerate(edge_index.T.tolist()):
-        #     if idx not in mask:
-        #         e_features[reverse_edge_map[(j, i)]] = -e_features[reverse_edge_map[(i, j)]]
-
-        # return x, e_features
-
-    def filter_edges(self, edge_index):
-        """
-        Filter out half of the edges by keeping only one direction for each pair (i, j).
-        Assumes edge_index is of shape (2, E).
-        """
-        # edge_index_transposed = edge_index.t()
-
-        # # Shuffle the rows
-        # shuffled_indices = torch.randperm(edge_index_transposed.size(0))
-        # shuffled_edge_index_transposed = edge_index_transposed[shuffled_indices]
-
-        # # Transpose back to original form
-        # shuffled_edge_index = shuffled_edge_index_transposed.t()
-        # edge_set = set()
-        # keep_indices = []
-
-        # for idx, (i, j) in enumerate(zip(shuffled_edge_index[0], shuffled_edge_index[1])):
-        #     if (j.item(), i.item()) not in edge_set:
-        #         edge_set.add((i.item(), j.item()))
-        #         keep_indices.append(idx)
-
-        # mask = torch.tensor(keep_indices, dtype=torch.long)
-        # return shuffled_edge_index[:, keep_indices], mask
-        edge_set = set()
-        keep_indices = []
-
-        for idx, (i, j) in enumerate(zip(edge_index[0], edge_index[1])):
-            if (j.item(), i.item()) not in edge_set:
-                edge_set.add((i.item(), j.item()))
-                keep_indices.append(idx)
-
-        mask = torch.tensor(keep_indices, dtype=torch.long)
-        return edge_index[:, keep_indices], mask
 
 class Decoder(nn.Module):
     def __init__(

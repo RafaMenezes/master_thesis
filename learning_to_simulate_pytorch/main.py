@@ -41,7 +41,7 @@ def main():
         node_in=30,
         edge_in=3,
         latent_dim=128,
-        num_message_passing_steps=10,
+        num_message_passing_steps=12,
         mlp_num_layers=2,
         mlp_hidden_dim=128,
         connectivity_radius=metadata['default_connectivity_radius'],
