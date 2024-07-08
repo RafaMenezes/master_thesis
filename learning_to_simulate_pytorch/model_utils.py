@@ -42,4 +42,49 @@ def get_random_walk_noise_for_position_sequence(position_sequence, noise_std_las
 def _read_metadata(data_path):
     with open(os.path.join(data_path, 'metadata.json'), 'rt') as fp:
         return json.loads(fp.read())
-    
+
+def sort_edge_index(edge_index, edge_features):
+    # Extract source and target nodes
+    source, target = edge_index[0], edge_index[1]
+
+    # Identify self-edges
+    self_edges_mask = source == target
+    self_edges = edge_index[:, self_edges_mask]
+    self_edges_features = edge_features[self_edges_mask]
+
+    # Identify edges where source < target
+    normal_edges_mask = source < target
+    normal_edges = edge_index[:, normal_edges_mask]
+    normal_edges_features = edge_features[normal_edges_mask]
+
+    # Identify edges where source > target
+    reverse_edges_mask = source > target
+    reverse_edges = edge_index[:, reverse_edges_mask]
+    reverse_edges_features = edge_features[reverse_edges_mask]
+
+    # Sort normal edges by source, then by target
+    normal_sorted_idx = normal_edges[0] * edge_index.size(1) + normal_edges[1]
+    normal_sorted_order = normal_sorted_idx.argsort()
+    normal_edges_sorted = normal_edges[:, normal_sorted_order]
+    normal_edges_features_sorted = normal_edges_features[normal_sorted_order]
+
+    # Sort reverse edges by target, then by source
+    reverse_sorted_idx = reverse_edges[1] * edge_index.size(1) + reverse_edges[0]
+    reverse_sorted_order = reverse_sorted_idx.argsort()
+    reverse_edges_sorted = reverse_edges[:, reverse_sorted_order]
+    reverse_edges_features_sorted = reverse_edges_features[reverse_sorted_order]
+
+    # Concatenate all sorted edges and corresponding features
+    sorted_edge_index = torch.cat([self_edges, normal_edges_sorted, reverse_edges_sorted], dim=1)
+    sorted_edge_features = torch.cat([self_edges_features, normal_edges_features_sorted, reverse_edges_features_sorted], dim=0)
+
+    # Determine slices
+    num_self_edges = self_edges.size(1)
+    num_normal_edges = normal_edges_sorted.size(1)
+    num_reverse_edges = reverse_edges_sorted.size(1)
+
+    self_edges_slice = (0, num_self_edges)
+    normal_edges_slice = (num_self_edges, num_self_edges + num_normal_edges)
+    reverse_edges_slice = (num_self_edges + num_normal_edges, num_self_edges + num_normal_edges + num_reverse_edges)
+
+    return sorted_edge_index, sorted_edge_features, self_edges_slice, normal_edges_slice, reverse_edges_slice

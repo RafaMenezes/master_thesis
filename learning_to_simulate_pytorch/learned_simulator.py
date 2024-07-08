@@ -2,7 +2,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import MessagePassing, radius_graph
-from model_utils import build_mlp, time_diff
+from model_utils import build_mlp, time_diff, sort_edge_index
+
+STRATEGY = 'negate' # chose from ['negate', 'avg', 'avg-negate']
 
 class Encoder(nn.Module):
     def __init__(
@@ -54,21 +56,6 @@ class InteractionNetwork(MessagePassing):
     def message(self, edge_index, x_i, x_j, e_features):
         e_features = torch.cat([x_i, x_j, e_features], dim=-1)
         e_features = self.edge_fn(e_features)
-        # print(edge_index.shape)
-        # for idx, (i, j) in enumerate(zip(edge_index[0], edge_index[1])):
-        #     if i > :j
-        #         try:
-        #             opposing_edge = (j, i)
-        #             opposing_edge_indices = (edge_index[0] == opposing_edge[0]) & (edge_index[1] == opposing_edge[1])
-        #             opposing_edge_index = torch.where(opposing_edge_indices)[0].item()
-        #             avg_features = (e_features[idx] + e_features[opposing_edge_index])/2
-
-        #             e_features[idx] = avg_features
-        #             e_features[opposing_edge_index] = avg_features
-        #         except RuntimeError:
-        #             print('found no opposing edge')
-        #             continue
-
 
         return e_features
 
@@ -89,38 +76,41 @@ class SymmetricInteractionNetwork(MessagePassing):
         mlp_num_layers,
         mlp_hidden_dim,
     ):
-        super().__init__(aggr='add')
+        super().__init__(aggr='max')
         self.node_fn = nn.Sequential(*[build_mlp(node_in+edge_out, [mlp_hidden_dim for _ in range(mlp_num_layers)], node_out), 
             nn.LayerNorm(node_out)])
         self.edge_fn = nn.Sequential(*[build_mlp(node_in+node_in+edge_in, [mlp_hidden_dim for _ in range(mlp_num_layers)], edge_out), 
             nn.LayerNorm(edge_out)])
 
-    def forward(self, x, edge_index, e_features):
+    def forward(self, x, edge_index, e_features, normal_edges_slice, reverse_edges_slice):
         # x: (E, node_in)
         # edge_index: (2, E)
         # e_features: (E, edge_in)
         x_residual = x
         e_features_residual = e_features
-        x, e_features = self.propagate(edge_index=edge_index, x=x, e_features=e_features)
+        x, e_features = self.propagate(edge_index=edge_index, x=x, e_features=e_features, normal_edges_slice=normal_edges_slice, reverse_edges_slice=reverse_edges_slice)
         return x+x_residual, e_features+e_features_residual
 
-    def message(self, edge_index, x_i, x_j, e_features):
+    def message(self, edge_index, x_i, x_j, e_features, normal_edges_slice, reverse_edges_slice):
         e_features = torch.cat([x_i, x_j, e_features], dim=-1)
         e_features = self.edge_fn(e_features)
 
-        for idx, (i, j) in enumerate(zip(edge_index[0], edge_index[1])):
-            if i > j:
-                try:
-                    opposing_edge = (j, i)
-                    opposing_edge_indices = (edge_index[0] == opposing_edge[0]) & (edge_index[1] == opposing_edge[1])
-                    opposing_edge_index = torch.where(opposing_edge_indices)[0].item()
-                    avg_features = (e_features[idx] + e_features[opposing_edge_index])/2
+        if STRATEGY == 'avg':
+            avg_features = (e_features[normal_edges_slice[0] : normal_edges_slice[1]] + e_features[reverse_edges_slice[0] : reverse_edges_slice[1]])/2
 
-                    e_features[idx] = avg_features
-                    e_features[opposing_edge_index] = avg_features
-                except RuntimeError:
-                    print('found no opposing edge')
-                    continue
+            e_features[normal_edges_slice[0] : normal_edges_slice[1]] = avg_features
+            e_features[reverse_edges_slice[0] : reverse_edges_slice[1]] = avg_features
+
+        elif STRATEGY == 'avg-negate':
+            avg_features = (e_features[normal_edges_slice[0] : normal_edges_slice[1]] + e_features[reverse_edges_slice[0] : reverse_edges_slice[1]])/2
+
+            e_features[normal_edges_slice[0] : normal_edges_slice[1]] = avg_features
+            e_features[reverse_edges_slice[0] : reverse_edges_slice[1]] = -avg_features
+
+        elif STRATEGY == 'negate':
+            e_features[reverse_edges_slice[0] : reverse_edges_slice[1]] = -e_features[normal_edges_slice[0] : normal_edges_slice[1]]
+        else:
+            raise ValueError
 
         return e_features
 
@@ -162,12 +152,12 @@ class Processor(MessagePassing):
             mlp_hidden_dim=mlp_hidden_dim
         )
 
-    def forward(self, x, edge_index, e_features):
+    def forward(self, x, edge_index, e_features, normal_edges_slice, reverse_edges_slice):
         for gnn in self.gnn_stacks:
             x, e_features = gnn(x, edge_index, e_features)
 
         # Symmetric message passing layer
-        x, e_features = self.symm_layer(x, edge_index, e_features)
+        x, e_features = self.symm_layer(x, edge_index, e_features, normal_edges_slice, reverse_edges_slice)
 
         return x, e_features
 
@@ -222,10 +212,10 @@ class EncodeProcessDecode(nn.Module):
             mlp_hidden_dim=mlp_hidden_dim,
         )
 
-    def forward(self, x, edge_index, e_features):
+    def forward(self, x, edge_index, e_features, normal_edges_slice, reverse_edges_slice):
         # x: (E, node_in)
         x, e_features = self._encoder(x, edge_index, e_features)
-        x, e_features = self._processor(x, edge_index, e_features)
+        x, e_features = self._processor(x, edge_index, e_features, normal_edges_slice, reverse_edges_slice)
         x = self._decoder(x)
         return x
 
@@ -344,14 +334,16 @@ class Simulator(nn.Module):
 
     def predict_positions(self, current_positions, n_particles_per_example, particle_types):
         node_features, edge_index, e_features = self._build_graph_from_raw(current_positions, n_particles_per_example, particle_types)
-        predicted_normalized_acceleration = self._encode_process_decode(node_features, edge_index, e_features)
+        edge_index, e_features, _, normal_edges_slice, reverse_edges_slice = sort_edge_index(edge_index, e_features)
+        predicted_normalized_acceleration = self._encode_process_decode(node_features, edge_index, e_features, normal_edges_slice, reverse_edges_slice)
         next_position = self._decoder_postprocessor(predicted_normalized_acceleration, current_positions)
         return next_position
 
     def predict_accelerations(self, next_position, position_sequence_noise, position_sequence, n_particles_per_example, particle_types):
         noisy_position_sequence = position_sequence + position_sequence_noise
         node_features, edge_index, e_features = self._build_graph_from_raw(noisy_position_sequence, n_particles_per_example, particle_types)
-        predicted_normalized_acceleration = self._encode_process_decode(node_features, edge_index, e_features)
+        edge_index, e_features, _, normal_edges_slice, reverse_edges_slice = sort_edge_index(edge_index, e_features)
+        predicted_normalized_acceleration = self._encode_process_decode(node_features, edge_index, e_features, normal_edges_slice, reverse_edges_slice)
         next_position_adjusted = next_position + position_sequence_noise[:, -1]
         target_normalized_acceleration = self._inverse_decoder_postprocessor(next_position_adjusted, noisy_position_sequence)
         return predicted_normalized_acceleration, target_normalized_acceleration

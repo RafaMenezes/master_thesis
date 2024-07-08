@@ -13,7 +13,7 @@ with open('data/metadata.json', 'rt') as f:
 num_steps = metadata['sequence_length'] - INPUT_SEQUENCE_LENGTH
 
 
-def infer(simulator, data_path="data/valid.tfrecord", device="cpu"):
+def infer(simulator, data_path="data/valid.tfrecord", device="cuda"):
     ds = prepare_data_from_tfds(data_path=data_path, is_rollout=True)
     eval_rollout(ds, simulator, num_steps=num_steps, save_results=True, device=device)
 

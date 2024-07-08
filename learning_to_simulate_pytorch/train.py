@@ -19,7 +19,7 @@ def train(
         training_steps=int(1e6), 
         data_path="data/train.tfrecord", 
         model_path="model.pth", 
-        device="cpu"
+        device="cuda"
     ):
     i = 0
     while os.path.isdir('train_log/run'+str(i)):
@@ -60,7 +60,7 @@ def train(
             )
             loss = (pred - target) ** 2
             loss = loss.sum(dim=-1)
-            num_non_kinematic = non_kinematic_mask.sum()
+            num_non_kinematic = non_kinematic_mask.sum()    
 
             loss = torch.where(non_kinematic_mask.bool(), loss, torch.zeros_like(loss))
             loss = loss.sum() / num_non_kinematic
@@ -92,4 +92,4 @@ def train(
         pass
 
     simulator.save(LOG_DIR+model_path)
-    print("Total running loss was: ", running_loss)
+    print("Model reached end of training. Total running loss was: ", running_loss)

@@ -14,9 +14,9 @@ noise_std = 6.7e-4
 def main():
     parser = argparse.ArgumentParser(description="Train or infer based on given model.")
     parser.add_argument("--mode", required=True, choices=["train", "eval"], help="Mode to run the model in.")
-    parser.add_argument("--training_steps", default=1e7, help="Number of training steps to utilize in training mode.")
+    parser.add_argument("--training_steps", default=1e6, help="Number of training steps to utilize in training mode.")
     parser.add_argument("--model_path", default="model.pth", help="In case of training, where to save the model. Else, where to load from.")
-    parser.add_argument("--device", required=True, choices=["cpu", "cuda"], help="CPU or GPU (cuda).")
+    parser.add_argument("--device", default="cuda", choices=["cpu", "cuda"], help="CPU or GPU (cuda).")
     args = parser.parse_args()
 
     os.makedirs('train_log', exist_ok=True)
