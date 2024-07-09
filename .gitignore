@@ -165,3 +165,4 @@ rollouts/
 train_log/
 model/
 gifs/
+logfile

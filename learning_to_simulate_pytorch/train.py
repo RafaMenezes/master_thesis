@@ -11,7 +11,7 @@ from torch.utils.tensorboard import SummaryWriter
 batch_size = 2
 noise_std = 6.7e-4
 log_steps = 5
-save_steps = 100
+save_steps = 500
 
 
 def train(
@@ -81,11 +81,11 @@ def train(
 
             step += 1
             running_loss += loss.item() / step
-            print(f'Training step: {step}/{training_steps}. Loss: {loss}.', end="\r",)
             if step >= training_steps:
                 break
 
             if step % save_steps == 0:
+                print(f'Training step: {step}/{training_steps}. Loss: {loss}.', end="\r",)
                 simulator.save(LOG_DIR+model_path)
 
     except KeyboardInterrupt:
