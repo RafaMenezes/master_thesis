@@ -143,21 +143,21 @@ class Processor(MessagePassing):
                 mlp_hidden_dim=mlp_hidden_dim,
             ) for _ in range(num_message_passing_steps)])
         
-        self.symm_layer = SymmetricInteractionNetwork(
-            node_in=node_in, 
-            node_out=node_out,
-            edge_in=edge_in, 
-            edge_out=edge_out,
-            mlp_num_layers=mlp_num_layers,
-            mlp_hidden_dim=mlp_hidden_dim
-        )
+        # self.symm_layer = SymmetricInteractionNetwork(
+        #     node_in=node_in, 
+        #     node_out=node_out,
+        #     edge_in=edge_in, 
+        #     edge_out=edge_out,
+        #     mlp_num_layers=mlp_num_layers,
+        #     mlp_hidden_dim=mlp_hidden_dim
+        # )
 
     def forward(self, x, edge_index, e_features, normal_edges_slice, reverse_edges_slice):
         for gnn in self.gnn_stacks:
             x, e_features = gnn(x, edge_index, e_features)
 
         # Symmetric message passing layer
-        x, e_features = self.symm_layer(x, edge_index, e_features, normal_edges_slice, reverse_edges_slice)
+        # x, e_features = self.symm_layer(x, edge_index, e_features, normal_edges_slice, reverse_edges_slice)
 
         return x, e_features
 
@@ -334,7 +334,9 @@ class Simulator(nn.Module):
 
     def predict_positions(self, current_positions, n_particles_per_example, particle_types):
         node_features, edge_index, e_features = self._build_graph_from_raw(current_positions, n_particles_per_example, particle_types)
-        edge_index, e_features, _, normal_edges_slice, reverse_edges_slice = sort_edge_index(edge_index, e_features)
+        # edge_index, e_features, _, normal_edges_slice, reverse_edges_slice = sort_edge_index(edge_index, e_features)
+        normal_edges_slice = None
+        reverse_edges_slice = None
         predicted_normalized_acceleration = self._encode_process_decode(node_features, edge_index, e_features, normal_edges_slice, reverse_edges_slice)
         next_position = self._decoder_postprocessor(predicted_normalized_acceleration, current_positions)
         return next_position
@@ -342,7 +344,9 @@ class Simulator(nn.Module):
     def predict_accelerations(self, next_position, position_sequence_noise, position_sequence, n_particles_per_example, particle_types):
         noisy_position_sequence = position_sequence + position_sequence_noise
         node_features, edge_index, e_features = self._build_graph_from_raw(noisy_position_sequence, n_particles_per_example, particle_types)
-        edge_index, e_features, _, normal_edges_slice, reverse_edges_slice = sort_edge_index(edge_index, e_features)
+        # edge_index, e_features, _, normal_edges_slice, reverse_edges_slice = sort_edge_index(edge_index, e_features)
+        normal_edges_slice = None
+        reverse_edges_slice = None
         predicted_normalized_acceleration = self._encode_process_decode(node_features, edge_index, e_features, normal_edges_slice, reverse_edges_slice)
         next_position_adjusted = next_position + position_sequence_noise[:, -1]
         target_normalized_acceleration = self._inverse_decoder_postprocessor(next_position_adjusted, noisy_position_sequence)

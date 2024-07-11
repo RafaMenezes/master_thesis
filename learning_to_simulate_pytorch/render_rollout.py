@@ -14,25 +14,34 @@ TYPE_TO_COLOR = {
 
 def main():
     parser = argparse.ArgumentParser(description="Visualize rollout data.")
-    parser.add_argument("--rollout_path", required=True, help="Path to rollout pickle file")
+    parser.add_argument("--base_rollout_path", required=True, help="Path to rollout baseline pickle file")
+    parser.add_argument("--new_rollout_path", required=True, help="Path to rollout new pickle file")
     parser.add_argument("--step_stride", type=int, default=3, help="Stride of steps to skip.")
     parser.add_argument("--block_on_show", type=bool, default=True, help="For test purposes.")
     parser.add_argument("--output_gif", help="Path to save the output GIF.")
     args = parser.parse_args()
 
-    with open(args.rollout_path, "rb") as file:
+    with open(args.base_rollout_path, "rb") as file:
         rollout_data = pickle.load(file)
+    with open(args.new_rollout_path, "rb") as file:
+        new_rollout_data = pickle.load(file)
 
-    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+    fig, axes = plt.subplots(1, 3, figsize=(10, 5))
 
     plot_info = []
     for ax_i, (label, rollout_field) in enumerate(
             [("Ground truth", "ground_truth_rollout"),
-             ("Prediction", "predicted_rollout")]):
+             ("Baseline", "predicted_rollout"),
+             ("Enhanced model", "predicted_rollout")]):
         # Append the initial positions to get the full trajectory.
-        trajectory = np.concatenate([
-            rollout_data["initial_positions"],
-            rollout_data[rollout_field]], axis=0)
+        if ax_i == 2:
+            trajectory = np.concatenate([
+                new_rollout_data["initial_positions"],
+                new_rollout_data[rollout_field]], axis=0)
+        else:
+            trajectory = np.concatenate([
+                rollout_data["initial_positions"],
+                rollout_data[rollout_field]], axis=0)
         ax = axes[ax_i]
         ax.set_title(label)
         bounds = rollout_data["metadata"]["bounds"]

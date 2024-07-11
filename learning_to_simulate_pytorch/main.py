@@ -67,7 +67,7 @@ def main():
         simulator.load(args.model_path)
         infer(
             simulator, 
-            data_path='data/valid.tfrecord',
+            data_path='data/WaterRamps/valid.tfrecord',
             device=args.device
         )
 
