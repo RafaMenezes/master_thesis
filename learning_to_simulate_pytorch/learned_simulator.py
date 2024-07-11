@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch_geometric.data import Data
 from torch_geometric.nn import MessagePassing, radius_graph
 from model_utils import build_mlp, time_diff, sort_edge_index
 
@@ -256,18 +257,22 @@ class Simulator(nn.Module):
 
         self._device = device
 
-    def forward(self):
+    def forward(self, position_sequence, n_particles_per_example, particle_types):
+        # preprocess (build graph)
+        input_graph = self._encoder_preprocessor(position_sequence, n_particles_per_example, particle_types)
+        # pass through graph network (encode-process-decode)
+        # postprocess (results from network should be transformed to final accelerations)
         pass
 
-    def _build_graph_from_raw(self, position_sequence, n_particles_per_example, particle_types):
+    def _encoder_preprocessor(self, position_sequence, n_particles_per_example, particle_types):
         n_total_points = position_sequence.shape[0]
         most_recent_position = position_sequence[:, -1] # (n_nodes, 2)
-        velocity_sequence = time_diff(position_sequence)
+        velocity_sequence = time_diff(position_sequence) # Finite-difference.
         # senders and receivers are integers of shape (E,)
         senders, receivers = self._compute_connectivity(most_recent_position, n_particles_per_example, self._connectivity_radius)
         node_features = []
         # Normalized velocity sequence, merging spatial an time axis.
-        velocity_stats = self._normalization_stats["velocity"]
+        velocity_stats = self._normalization_stats['velocity']
         normalized_velocity_sequence = (velocity_sequence - velocity_stats['mean']) / velocity_stats['std']
         flat_velocity_sequence = normalized_velocity_sequence.view(n_total_points, -1)
         node_features.append(flat_velocity_sequence)
@@ -289,11 +294,6 @@ class Simulator(nn.Module):
         # Collect edge features.
         edge_features = []
 
-        # Relative displacement and distances normalized to radius
-        # (E, 2)
-        # normalized_relative_displacements = (
-        #     torch.gather(most_recent_position, 0, senders) - torch.gather(most_recent_position, 0, receivers)
-        # ) / self._connectivity_radius
         normalized_relative_displacements = (
             most_recent_position[senders, :] - most_recent_position[receivers, :]
         ) / self._connectivity_radius
@@ -302,7 +302,13 @@ class Simulator(nn.Module):
         normalized_relative_distances = torch.norm(normalized_relative_displacements, dim=-1, keepdim=True)
         edge_features.append(normalized_relative_distances)
 
-        return torch.cat(node_features, dim=-1), torch.stack([senders, receivers]), torch.cat(edge_features, dim=-1)
+        # Data is the efficient graph structure from PyTorch Geometric's data library
+        return Data(
+            x = torch.cat(node_features, dim=-1),
+            edge_index = torch.stack([senders, receivers]),
+            edge_attr = torch.cat(edge_features, dim=-1)
+        )
+
 
     def _compute_connectivity(self, node_features, n_particles_per_example, radius, add_self_edges=True):
         # handle batches. Default is 2 examples per batch
