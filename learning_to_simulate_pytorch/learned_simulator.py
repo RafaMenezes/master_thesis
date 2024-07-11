@@ -17,17 +17,21 @@ class Encoder(nn.Module):
         mlp_num_layers,
         mlp_hidden_dim,
     ):
-        super(Encoder, self).__init__()
+        super().__init__()
         self.node_fn = nn.Sequential(*[build_mlp(node_in, [mlp_hidden_dim for _ in range(mlp_num_layers)], node_out), 
             nn.LayerNorm(node_out)])
         self.edge_fn = nn.Sequential(*[build_mlp(edge_in, [mlp_hidden_dim for _ in range(mlp_num_layers)], edge_out), 
             nn.LayerNorm(edge_out)])
 
-    def forward(self, x, edge_index, e_features): # global_features
+    def forward(self, input_graph): # global_features
         # x: (E, node_in)
         # edge_index: (2, E)
         # e_features: (E, edge_in)
-        return self.node_fn(x), self.edge_fn(e_features)
+        return Data(
+            x = self.node_fn(input_graph.x),
+            edge_index = input_graph.edge_index,
+            edge_attr = self.edge_fn(input_graph.edge_attr)
+        )
 
 class InteractionNetwork(MessagePassing):
     def __init__(
@@ -39,20 +43,26 @@ class InteractionNetwork(MessagePassing):
         mlp_num_layers,
         mlp_hidden_dim,
     ):
-        super(InteractionNetwork, self).__init__(aggr='add')
+        super().__init__(aggr='add')
         self.node_fn = nn.Sequential(*[build_mlp(node_in+edge_out, [mlp_hidden_dim for _ in range(mlp_num_layers)], node_out), 
             nn.LayerNorm(node_out)])
         self.edge_fn = nn.Sequential(*[build_mlp(node_in+node_in+edge_in, [mlp_hidden_dim for _ in range(mlp_num_layers)], edge_out), 
             nn.LayerNorm(edge_out)])
 
-    def forward(self, x, edge_index, e_features):
+    def forward(self, latent_graph):
         # x: (E, node_in)
         # edge_index: (2, E)
         # e_features: (E, edge_in)
-        x_residual = x
-        e_features_residual = e_features
-        x, e_features = self.propagate(edge_index=edge_index, x=x, e_features=e_features)
-        return x+x_residual, e_features+e_features_residual
+        x_residual = latent_graph.x
+        e_features_residual = latent_graph.edge_attr
+
+        x, e_features = self.propagate(edge_index=latent_graph.edge_index, x=x_residual, e_features=e_features_residual)
+
+        return Data(
+            x = x+x_residual,
+            edge_index = latent_graph.edge_index,
+            edge_attr = e_features+e_features_residual
+        )
 
     def message(self, edge_index, x_i, x_j, e_features):
         e_features = torch.cat([x_i, x_j, e_features], dim=-1)
@@ -83,14 +93,20 @@ class SymmetricInteractionNetwork(MessagePassing):
         self.edge_fn = nn.Sequential(*[build_mlp(node_in+node_in+edge_in, [mlp_hidden_dim for _ in range(mlp_num_layers)], edge_out), 
             nn.LayerNorm(edge_out)])
 
-    def forward(self, x, edge_index, e_features, normal_edges_slice, reverse_edges_slice):
+    def forward(self, x, latent_graph, normal_edges_slice, reverse_edges_slice):
         # x: (E, node_in)
         # edge_index: (2, E)
         # e_features: (E, edge_in)
-        x_residual = x
-        e_features_residual = e_features
-        x, e_features = self.propagate(edge_index=edge_index, x=x, e_features=e_features, normal_edges_slice=normal_edges_slice, reverse_edges_slice=reverse_edges_slice)
-        return x+x_residual, e_features+e_features_residual
+        x_residual = latent_graph.x
+        e_features_residual = latent_graph.edge_attr
+
+        x, e_features = self.propagate(edge_index=latent_graph.edge_index, x=x_residual, e_features=e_features_residual, normal_edges_slice=normal_edges_slice, reverse_edges_slice=reverse_edges_slice)
+
+        return Data(
+            x = x+x_residual,
+            edge_index = latent_graph.edge_index,
+            edge_attr = e_features+e_features_residual
+        )
 
     def message(self, edge_index, x_i, x_j, e_features, normal_edges_slice, reverse_edges_slice):
         e_features = torch.cat([x_i, x_j, e_features], dim=-1)
@@ -133,7 +149,7 @@ class Processor(MessagePassing):
         mlp_num_layers,
         mlp_hidden_dim,
     ):
-        super(Processor, self).__init__(aggr='max')
+        super().__init__(aggr='max')
         self.gnn_stacks = nn.ModuleList([
             InteractionNetwork(
                 node_in=node_in, 
@@ -153,14 +169,20 @@ class Processor(MessagePassing):
         #     mlp_hidden_dim=mlp_hidden_dim
         # )
 
-    def forward(self, x, edge_index, e_features, normal_edges_slice, reverse_edges_slice):
+    def forward(self, latent_graph_0, normal_edges_slice, reverse_edges_slice):
+        latent_graph_prev_k = latent_graph_0
+        latent_graph_k = latent_graph_0
+        
         for gnn in self.gnn_stacks:
-            x, e_features = gnn(x, edge_index, e_features)
+            latent_graph_k = gnn(latent_graph_prev_k)
+            latent_graph_prev_k = latent_graph_k
 
         # Symmetric message passing layer
         # x, e_features = self.symm_layer(x, edge_index, e_features, normal_edges_slice, reverse_edges_slice)
 
-        return x, e_features
+        # The last graph, after `m` steps of message-passing
+        latent_graph_m = latent_graph_k
+        return latent_graph_m
 
 class Decoder(nn.Module):
     def __init__(
@@ -170,12 +192,12 @@ class Decoder(nn.Module):
         mlp_num_layers,
         mlp_hidden_dim,
     ):
-        super(Decoder, self).__init__()
+        super().__init__()
         self.node_fn = build_mlp(node_in, [mlp_hidden_dim for _ in range(mlp_num_layers)], node_out)
 
-    def forward(self, x):
+    def forward(self, latent_graph_m):
         # x: (E, node_in)
-        return self.node_fn(x)
+        return self.node_fn(latent_graph_m.x)
 
 class EncodeProcessDecode(nn.Module):
     def __init__(
@@ -188,7 +210,7 @@ class EncodeProcessDecode(nn.Module):
         mlp_num_layers,
         mlp_hidden_dim,
     ):
-        super(EncodeProcessDecode, self).__init__()
+        super().__init__()
         self._encoder = Encoder(
             node_in=node_in, 
             node_out=latent_dim,
@@ -213,12 +235,15 @@ class EncodeProcessDecode(nn.Module):
             mlp_hidden_dim=mlp_hidden_dim,
         )
 
-    def forward(self, x, edge_index, e_features, normal_edges_slice, reverse_edges_slice):
-        # x: (E, node_in)
-        x, e_features = self._encoder(x, edge_index, e_features)
-        x, e_features = self._processor(x, edge_index, e_features, normal_edges_slice, reverse_edges_slice)
-        x = self._decoder(x)
-        return x
+    def forward(self, input_graph, normal_edges_slice, reverse_edges_slice):
+        # Encode the input_graph.
+        latent_graph_0 = self._encoder(input_graph)
+
+        # Do `m` message passing steps in the latent graphs.
+        latent_graph_m = self._processor(latent_graph_0, normal_edges_slice, reverse_edges_slice)
+
+        # Decode from the last latent graph.
+        return self._decoder(latent_graph_m)
 
 class Simulator(nn.Module):
     def __init__(
@@ -237,7 +262,7 @@ class Simulator(nn.Module):
         particle_type_embedding_size,
         device='cuda',
     ):
-        super(Simulator, self).__init__()
+        super().__init__()
         self._boundaries = boundaries
         self._connectivity_radius = connectivity_radius
         self._normalization_stats = normalization_stats
@@ -260,9 +285,14 @@ class Simulator(nn.Module):
     def forward(self, position_sequence, n_particles_per_example, particle_types):
         # preprocess (build graph)
         input_graph = self._encoder_preprocessor(position_sequence, n_particles_per_example, particle_types)
+
         # pass through graph network (encode-process-decode)
-        # postprocess (results from network should be transformed to final accelerations)
-        pass
+        normalized_acceleration = self._encode_process_decode(input_graph)
+        
+        # postprocess (results from network should be transformed to final positions)
+        next_position = self._decoder_postprocessor(normalized_acceleration, position_sequence)
+        
+        return next_position
 
     def _encoder_preprocessor(self, position_sequence, n_particles_per_example, particle_types):
         n_total_points = position_sequence.shape[0]
@@ -324,7 +354,7 @@ class Simulator(nn.Module):
     def _decoder_postprocessor(self, normalized_acceleration, position_sequence):
         # The model produces the output in normalized space so we apply inverse
         # normalization.
-        acceleration_stats = self._normalization_stats["acceleration"]
+        acceleration_stats = self._normalization_stats['acceleration']
         acceleration = (
             normalized_acceleration * acceleration_stats['std']
         ) + acceleration_stats['mean']
