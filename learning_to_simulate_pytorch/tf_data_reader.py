@@ -5,9 +5,9 @@ import reading_utils
 import tree
 
 
-def prepare_data_from_tfds(data_path='data/train.tfrecord', is_rollout=False, batch_size=2):
-    metadata = reading_utils._read_metadata('data/WaterRamps')
-    ds = tf.data.TFRecordDataset([data_path])
+def prepare_data_from_tfds(data_path='data/', is_rollout=False, batch_size=2):
+    metadata = reading_utils._read_metadata(data_path)
+    ds = tf.data.TFRecordDataset([data_path+'train.tfrecord']) if not is_rollout else tf.data.TFRecordDataset([data_path+'valid.tfrecord'])
     ds = ds.map(functools.partial(reading_utils.parse_serialized_simulation_example, metadata=metadata))
     if is_rollout:
         ds = ds.map(prepare_rollout_inputs)

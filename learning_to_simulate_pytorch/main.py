@@ -12,11 +12,12 @@ noise_std = 6.7e-4
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Train or infer based on given model.")
-    parser.add_argument("--mode", required=True, choices=["train", "eval"], help="Mode to run the model in.")
-    parser.add_argument("--training_steps", default=1e6, help="Number of training steps to utilize in training mode.")
-    parser.add_argument("--model_path", default="model.pth", help="In case of training, where to save the model. Else, where to load from.")
-    parser.add_argument("--device", default="cuda", choices=["cpu", "cuda"], help="CPU or GPU (cuda).")
+    parser = argparse.ArgumentParser(description='Train or infer based on given model.')
+    parser.add_argument('--mode', required=True, choices=['train', 'eval'], help='Mode to run the model in.')
+    parser.add_argument('--training_steps', default=1e6, help='Number of training steps to utilize in training mode.')
+    parser.add_argument('--model_path', default='model.pth', help='In case of training, where to save the model. Else, where to load from.')
+    parser.add_argument('--strategy', default='baseline', choices=['baseline', 'mc'], help='Strategy to learn (baseline or mc).')
+    parser.add_argument('--device', default='cuda', choices=['cpu', 'cuda'], help='CPU or GPU (cuda).')
     args = parser.parse_args()
 
     os.makedirs('train_log', exist_ok=True)
@@ -41,7 +42,7 @@ def main():
         node_in=30,
         edge_in=3,
         latent_dim=128,
-        num_message_passing_steps=12,
+        num_message_passing_steps=10,
         mlp_num_layers=2,
         mlp_hidden_dim=128,
         connectivity_radius=metadata['default_connectivity_radius'],
@@ -49,17 +50,18 @@ def main():
         normalization_stats=normalization_stats,
         num_particle_types=9,
         particle_type_embedding_size=16,
+        strategy=args.strategy,
         device=args.device,
     )
 
-    if args.device == "cuda":
+    if args.device == 'cuda':
         simulator.cuda()
 
-    if args.mode == "train":
+    if args.mode == 'train':
         train(
             simulator, 
             training_steps=int(args.training_steps), 
-            data_path='data/train.tfrecord', 
+            data_path='data/', 
             model_path=args.model_path,
             device=args.device
         )
@@ -67,7 +69,7 @@ def main():
         simulator.load(args.model_path)
         infer(
             simulator, 
-            data_path='data/WaterRamps/valid.tfrecord',
+            data_path='data/',
             device=args.device
         )
 

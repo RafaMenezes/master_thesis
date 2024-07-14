@@ -7,15 +7,15 @@ from tf_data_reader import prepare_data_from_tfds
 
 INPUT_SEQUENCE_LENGTH = 6
 
-with open('data/metadata.json', 'rt') as f:
-    metadata = json.loads(f.read())
 
-num_steps = metadata['sequence_length'] - INPUT_SEQUENCE_LENGTH
+def infer(simulator, data_path='data/', device='cuda'):
+    with open(data_path+'metadata.json', 'rt') as f:
+        metadata = json.loads(f.read())
 
+    num_steps = metadata['sequence_length'] - INPUT_SEQUENCE_LENGTH
 
-def infer(simulator, data_path="data/valid.tfrecord", device="cuda"):
     ds = prepare_data_from_tfds(data_path=data_path, is_rollout=True)
-    eval_rollout(ds, simulator, num_steps=num_steps, save_results=True, device=device)
+    eval_rollout(ds, simulator, num_steps=num_steps, save_results=True, metadata=metadata, device=device)
 
 
 def eval_single_rollout(simulator, features, num_steps, device):
@@ -49,7 +49,7 @@ def eval_single_rollout(simulator, features, num_steps, device):
     return output_dict, loss
 
 
-def eval_rollout(ds, simulator, num_steps, num_eval_steps=1, save_results=False, device='cuda'):
+def eval_rollout(ds, simulator, num_steps, num_eval_steps=1, save_results=False, metadata=None, device='cuda'):
     eval_loss = []
     i = 0
     simulator.eval()

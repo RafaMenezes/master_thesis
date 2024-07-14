@@ -2,6 +2,8 @@ import os
 import json
 import torch
 import torch.nn as nn
+from torch_geometric.nn import radius_graph
+from torch_geometric.data import Data
 
 def build_mlp(
     input_size,
@@ -43,7 +45,23 @@ def _read_metadata(data_path):
     with open(os.path.join(data_path, 'metadata.json'), 'rt') as fp:
         return json.loads(fp.read())
 
-def sort_edge_index(edge_index, edge_features):
+def compute_connectivity(node_features, n_particles_per_example, radius, device, add_self_edges=True):
+        # handle batches. Default is 2 examples per batch
+
+        # Specify examples id for particles/points
+        batch_ids = torch.cat([torch.LongTensor([i for _ in range(n)]) for i, n in enumerate(n_particles_per_example)]).to(device)
+
+        # radius = radius + 0.00001 # radius_graph takes r < radius not r <= radius
+        edge_index = radius_graph(node_features, r=radius, batch=batch_ids, loop=add_self_edges, max_num_neighbors=500) # (2, n_edges)
+        receivers = edge_index[0, :]
+        senders = edge_index[1, :]
+
+        return receivers, senders
+
+def sort_edge_index(input_graph):
+
+    edge_index = input_graph.edge_index
+    edge_features = input_graph.edge_attr
     # Extract source and target nodes
     source, target = edge_index[0], edge_index[1]
 
@@ -87,4 +105,10 @@ def sort_edge_index(edge_index, edge_features):
     normal_edges_slice = (num_self_edges, num_self_edges + num_normal_edges)
     reverse_edges_slice = (num_self_edges + num_normal_edges, num_self_edges + num_normal_edges + num_reverse_edges)
 
-    return sorted_edge_index, sorted_edge_features, self_edges_slice, normal_edges_slice, reverse_edges_slice
+    sorted_graph = Data(
+        x = input_graph.x,
+        edge_index = sorted_edge_index,
+        edge_attr = sorted_edge_features
+    )
+
+    return sorted_graph, self_edges_slice, normal_edges_slice, reverse_edges_slice

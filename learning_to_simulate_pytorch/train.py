@@ -17,15 +17,15 @@ save_steps = 500
 def train(
         simulator, 
         training_steps=int(1e6), 
-        data_path="data/train.tfrecord", 
-        model_path="model.pth", 
-        device="cuda"
+        data_path='data/', 
+        model_path='model.pth', 
+        device='cuda'
     ):
     i = 0
     while os.path.isdir('train_log/run'+str(i)):
         i += 1
     LOG_DIR = 'train_log/run'+str(i)+'/'
-    Path("model").mkdir(parents=True, exist_ok=True)
+    Path('model').mkdir(parents=True, exist_ok=True)
 
     writer = SummaryWriter(LOG_DIR)
 
@@ -51,7 +51,7 @@ def train(
             non_kinematic_mask = (features['particle_type'] != 3).clone().detach().to(device)
             sampled_noise *= non_kinematic_mask.view(-1, 1, 1)
 
-            pred, target = simulator.predict_accelerations(
+            pred, target = simulator.get_predicted_and_target_normalized_accelerations(
                 next_position=labels, 
                 position_sequence_noise=sampled_noise, 
                 position_sequence=features['position'], 
@@ -66,8 +66,8 @@ def train(
             loss = loss.sum() / num_non_kinematic
 
             if step % log_steps == 0:
-                writer.add_scalar("training_loss", loss, step)
-                writer.add_scalar("lr", lr_new, step)
+                writer.add_scalar('training_loss', loss, step)
+                writer.add_scalar('lr', lr_new, step)
 
             optimizer.zero_grad()
             loss.backward()
@@ -85,11 +85,11 @@ def train(
                 break
 
             if step % save_steps == 0:
-                print(f'Training step: {step}/{training_steps}. Loss: {loss}.', end="\r",)
+                print(f'Training step: {step}/{training_steps}. Loss: {loss}.', end='\r',)
                 simulator.save(LOG_DIR+model_path)
 
     except KeyboardInterrupt:
         pass
 
     simulator.save(LOG_DIR+model_path)
-    print("Model reached end of training. Total running loss was: ", running_loss)
+    print('Model reached end of training. Total running loss was: ', running_loss)
