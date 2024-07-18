@@ -21,8 +21,8 @@ def prepare_data_from_tfds(data_path='data/', is_rollout=False, batch_size=2):
         ds = ds.shuffle(512)
         ds = batch_concat(ds, batch_size)
     ds = tfds.as_numpy(ds)
-    for i in range(100): # clear screen
-        print()
+    # for i in range(100): # clear screen
+    #     print()
     return ds
 
 
@@ -34,6 +34,7 @@ def prepare_inputs(tensor_dict):
     tensor_dict['position'] = pos[:, :-1]
     num_particles = tf.shape(pos)[0]
     tensor_dict['n_particles_per_example'] = num_particles[tf.newaxis]
+    print(tensor_dict)
     if 'step_context' in tensor_dict:
         tensor_dict['step_context'] = tensor_dict['step_context'][-2]
         tensor_dict['step_context'] = tensor_dict['step_context'][tf.newaxis]

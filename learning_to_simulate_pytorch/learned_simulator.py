@@ -78,17 +78,19 @@ class Simulator(nn.Module):
         velocity_sequence = time_diff(position_sequence) # Finite-difference.
         # senders and receivers are integers of shape (E,)
         senders, receivers = compute_connectivity(most_recent_position, n_particles_per_example, self._connectivity_radius, self._device)
+
         node_features = []
         # Normalized velocity sequence, merging spatial an time axis.
         velocity_stats = self._normalization_stats['velocity']
         normalized_velocity_sequence = (velocity_sequence - velocity_stats['mean']) / velocity_stats['std']
-        flat_velocity_sequence = normalized_velocity_sequence.view(n_total_points, -1)
+        flat_velocity_sequence = normalized_velocity_sequence.reshape(n_total_points, -1)
         node_features.append(flat_velocity_sequence)
 
         # Normalized clipped distances to lower and upper boundaries.
         # boundaries are an array of shape [num_dimensions, 2], where the second
         # axis, provides the lower/upper boundaries.
         boundaries = torch.tensor(self._boundaries, requires_grad=False).float().to(self._device)
+       
         distance_to_lower_boundary = (most_recent_position - boundaries[:, 0][None])
         distance_to_upper_boundary = (boundaries[:, 1][None] - most_recent_position)
         distance_to_boundaries = torch.cat([distance_to_lower_boundary, distance_to_upper_boundary], dim=1)
@@ -159,7 +161,7 @@ class Simulator(nn.Module):
     def get_predicted_and_target_normalized_accelerations(self, next_position, position_sequence_noise, position_sequence, n_particles_per_example, particle_types):
         # Adds noise to the position sequence -- helps stabilize the errors along the rollout in inference
         noisy_position_sequence = position_sequence + position_sequence_noise
-
+        if self.training: print("treino")
         # Perform a forward pass through the graph network
         input_graph, _, normal_edges_slice, reverse_edges_slice  = self._encoder_preprocessor(noisy_position_sequence, n_particles_per_example, particle_types)
 

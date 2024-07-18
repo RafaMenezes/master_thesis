@@ -116,7 +116,6 @@ def split_trajectory(context, features, window_length=7):
   """Splits trajectory into sliding windows."""
   # Our strategy is to make sure all the leading dimensions are the same size,
   # then we can use from_tensor_slices.
-
   trajectory_length = features['position'].get_shape().as_list()[0]
 
   # We then stack window_length position changes so the final
