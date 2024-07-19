@@ -180,6 +180,7 @@ class Simulator(L.LightningModule):
 
     def training_step(self, batch, batch_idx):
         position_sequence, next_position = batch
+
         particle_types = torch.full((position_sequence.shape[0],), 5).to(self._device)
 
         sampled_noise = get_random_walk_noise_for_position_sequence(position_sequence, noise_std_last_step=self.noise_std).to(self._device)

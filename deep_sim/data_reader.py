@@ -8,8 +8,8 @@ def generate_metadata(dataset):
     # Initialize accumulators for velocity and acceleration sums
     metadata = {}
     # Assuming 2 dimensions (x and y)
-    total_vel_sum = torch.zeros(2)  
-    total_acc_sum = torch.zeros(2)  
+    total_vel_sum = torch.zeros(2).to(dataset.device)
+    total_acc_sum = torch.zeros(2).to(dataset.device) 
     total_vel_count = 0
     total_acc_count = 0
 
@@ -37,16 +37,16 @@ def generate_metadata(dataset):
         acc_list_y.append(acc_sequence[:, 1].reshape(-1))  # Flatten y dimension to 1D tensor for std calculation
 
     # Compute means
-    mean_velocity = np.float64(total_vel_sum / total_vel_count)
-    mean_acceleration = np.float64(total_acc_sum / total_acc_count)
+    mean_velocity = np.float64(total_vel_sum.cpu().numpy() / total_vel_count)
+    mean_acceleration = np.float64(total_acc_sum.cpu().numpy() / total_acc_count)
 
     # Calculate standard deviations
     vel_tensor = torch.stack([torch.cat(vel_list_x), torch.cat(vel_list_y)])
     acc_tensor = torch.stack([torch.cat(acc_list_x), torch.cat(acc_list_y)])
 
 
-    std_velocity = np.float64(torch.std(vel_tensor, dim=1, unbiased=False))
-    std_acceleration = np.float64(torch.std(acc_tensor, dim=1, unbiased=False))
+    std_velocity = np.float64(torch.std(vel_tensor, dim=1, unbiased=False).cpu().numpy())
+    std_acceleration = np.float64(torch.std(acc_tensor, dim=1, unbiased=False).cpu().numpy())
 
     metadata['vel_mean'] = list(mean_velocity)
     metadata['acc_mean'] = list(mean_acceleration)
