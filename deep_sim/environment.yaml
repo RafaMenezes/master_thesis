@@ -1,0 +1,45 @@
+name: simulation
+channels:
+  - pytorch
+  - conda-forge
+  - pyg
+  - defaults
+dependencies:
+  - pytorch=2.2.2
+  - torchvision=0.17.2
+  - torchaudio
+  - cudatoolkit=11.8
+  - python=3.10
+  - scipy
+  - numpy=1.26.3
+  - qt=5.12
+  - graphviz
+  - pip
+  - pip:
+    - lightning==2.3.3
+    - lightning-utilities==0.11.5
+    - torch-cluster==1.6.3
+    - torch-geometric @ git+https://github.com/pyg-team/pytorch_geometric.git@61c47ee404f8e26b3a1cd0db56448b6254920d0e
+    - torch-scatter==2.1.2
+    - torch-sparse==0.6.18
+    - torchmetrics==1.4.0.post0
+    - meshio==5.1.0
+    - pyevtk==1.2.0
+    - pytest
+    - pybind11
+    - jsonargparse[signatures]
+    - git+https://github.com/digitalillusions/Discregrid.git
+    - pathos
+    - tensorboard==2.14.0
+    - protobuf==4.25
+    - polyscope
+    - trimesh
+    - einops==0.8.0
+    - plyfile
+    - scikit-image
+    - scikit-learn
+    - rtree
+    - ipykernel
+    - pandas
+    - torchviz
+    - timm==0.9.16
