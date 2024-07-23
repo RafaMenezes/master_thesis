@@ -166,3 +166,6 @@ train_log/
 model/
 gifs/
 logfile
+imgui.ini
+*.json
+lightning_logs/

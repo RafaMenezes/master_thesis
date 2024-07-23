@@ -4,11 +4,10 @@ import numpy as np
 import torch
 import argparse
 import lightning as L
+from torch.utils.data import DataLoader, random_split
 
 from learned_simulator import Simulator
 from data_reader import SimulationDataset, generate_metadata
-# from train import train
-# from infer import infer
 
 
 def main():
@@ -23,11 +22,8 @@ def main():
     os.makedirs('train_log', exist_ok=True)
     os.makedirs('rollouts', exist_ok=True)
 
-    with open('new_metadata.json', 'rt') as f:
-        metadata = json.loads(f.read())
-
-    ds = SimulationDataset(device=args.device, data_dir='../learning_to_simulate_pytorch/vtk', window_size=6)
-    generate_metadata(ds)
+    ds = SimulationDataset(device=args.device, data_dir='data/train', window_size=6)
+    metadata = generate_metadata(ds)
 
     simulator = Simulator(
         particle_dimension=2,
@@ -40,7 +36,6 @@ def main():
         num_particle_types=9,
         particle_type_embedding_size=16,
         metadata=metadata,
-        dataset=ds,
         strategy=args.strategy,
         device=args.device,
     )
@@ -51,7 +46,15 @@ def main():
     trainer = L.Trainer(max_steps=int(args.training_steps), accelerator=args.device)
 
     if args.mode == 'train':
-        trainer.fit(model=simulator, train_dataloaders=ds)
+        train_set_size = int(len(ds) * 0.8)
+        valid_set_size = len(ds) - train_set_size
+        seed = torch.Generator().manual_seed(42)
+        train_set, val_set = random_split(ds, [train_set_size, valid_set_size], generator=seed)
+
+        train_loader = DataLoader(train_set, batch_size=2, shuffle=True, num_workers=0)
+        val_loader = DataLoader(val_set, batch_size=2, shuffle=False, num_workers=0)
+
+        trainer.fit(model=simulator, train_dataloaders=train_loader, val_dataloaders=val_loader)
     else:
         # simulator.load(args.model_path)
         # infer(

@@ -59,40 +59,58 @@ def generate_metadata(dataset):
     metadata['dt'] = 0.0025
 
     import json
-    with open('new_metadata.json', 'w') as f:
+    with open('metadata.json', 'w') as f:
         json.dump(metadata, f)
+    
+    return metadata
 
 
 class SimulationDataset(Dataset):
     def __init__(
             self, 
             device='cuda',
-            data_dir='vtk', 
+            data_dir='data/train', 
             window_size=6
         ):
         super().__init__()
         self.device = device
-        self.data_windows, self.labels, self.n_particles_per_example = self.prepare_data(data_dir, window_size)
+        self.window_size = window_size
+        self.data_windows, self.labels, self.n_particles_per_example = self.load_simulation_files(data_dir)
 
 
-    def load_mesh_files(self, data_dir):
-        mesh_files = sorted([f for f in os.listdir(data_dir) if f.endswith('.vtk')])
-        all_positions = []
-        for mesh_file in mesh_files:
-            mesh = meshio.read(os.path.join(data_dir, mesh_file))
-            xy_coordinates = mesh.points[:, :2].astype('float32')
-            positions = torch.tensor(xy_coordinates, dtype=torch.float)
-            all_positions.append(positions)
-        return all_positions
+    def load_simulation_files(self, data_dir):
+        data_windows = []
+        labels = []
+        n_particles_per_example = []
 
-    def create_sliding_windows(self, positions_list, window_size):
+        for sim_folder in os.listdir(data_dir):
+            sub_data_dir = os.path.join(data_dir, sim_folder,'vtk')
+
+            mesh_files = sorted([f for f in os.listdir(sub_data_dir) if f.endswith('.vtk')])
+            all_positions = []
+            for mesh_file in mesh_files:
+
+                mesh = meshio.read(os.path.join(sub_data_dir, mesh_file))
+                xy_coordinates = mesh.points[:, :2].astype('float32')
+                
+                positions = torch.tensor(xy_coordinates, dtype=torch.float)
+                all_positions.append(positions)
+
+            sim_data_windows, sim_labels, sim_n_particles_per_example = self.create_sliding_windows(all_positions)
+            data_windows.extend(sim_data_windows)
+            labels.extend(sim_labels)
+            n_particles_per_example.extend(sim_n_particles_per_example)
+        
+        return data_windows, labels, n_particles_per_example
+
+    def create_sliding_windows(self, positions_list):
         data_windows = []
         labels = []
         n_particles_per_example = []
         num_frames = len(positions_list)
-        for i in range(num_frames - window_size):
-            window = positions_list[i:i+window_size]
-            label = positions_list[i+window_size]
+        for i in range(num_frames - self.window_size):
+            window = positions_list[i:i+self.window_size]
+            label = positions_list[i+self.window_size]
             data_windows.append(torch.stack(window).to(self.device))
             labels.append(label.to(self.device))
             # Get number of particles (first dimension of positions tensor)
@@ -100,10 +118,6 @@ class SimulationDataset(Dataset):
             n_particles_per_example.append(torch.tensor([num_particles]).to(self.device))
         return data_windows, labels, n_particles_per_example
 
-    def prepare_data(self, data_dir, window_size):
-        positions_list = self.load_mesh_files(data_dir)
-        data_windows, labels, n_particles_per_example = self.create_sliding_windows(positions_list, window_size)
-        return data_windows, labels, n_particles_per_example
 
     def __len__(self):
         return len(self.data_windows)

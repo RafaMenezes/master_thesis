@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from torch_geometric.data import Data
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, random_split
 import lightning as L
 import numpy as np
 
@@ -22,13 +22,11 @@ class Simulator(L.LightningModule):
         num_particle_types,
         particle_type_embedding_size,
         metadata,
-        dataset,
         strategy='baseline',
         device='cuda',
     ):
         super().__init__()
         self._num_particle_types = num_particle_types
-        self._dataset = dataset
         self._strategy = strategy
         self._device = device
         self.noise_std = 6.7e-4
@@ -174,12 +172,14 @@ class Simulator(L.LightningModule):
 
         next_position = self._decoder_postprocessor(predicted_normalized_acceleration, current_positions)
         return next_position
-    
-    def train_dataloader(self):
-        return DataLoader(self._dataset, batch_size=2, shuffle=True, num_workers=4)
+
 
     def training_step(self, batch, batch_idx):
         position_sequence, next_position = batch
+
+        batch_size, num_particles, window_size, pos_dim = position_sequence.shape
+        position_sequence = position_sequence.view(-1, window_size, pos_dim)  # shape: (batch_size * num_particles, window_size, pos_dim)
+        next_position = next_position.view(-1, pos_dim)
 
         particle_types = torch.full((position_sequence.shape[0],), 5).to(self._device)
 
@@ -207,6 +207,42 @@ class Simulator(L.LightningModule):
         loss = loss.sum() / num_non_kinematic
 
         self.log('training_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
+        return loss
+    
+    def validation_step(self, batch, batch_idx):
+        position_sequence, next_position = batch
+
+        batch_size, num_particles, window_size, pos_dim = position_sequence.shape
+        position_sequence = position_sequence.view(-1, window_size, pos_dim)  # shape: (batch_size * num_particles, window_size, pos_dim)
+        next_position = next_position.view(-1, pos_dim)
+
+        particle_types = torch.full((position_sequence.shape[0],), 5).to(self._device)
+
+        sampled_noise = get_random_walk_noise_for_position_sequence(position_sequence, noise_std_last_step=self.noise_std).to(self._device)
+        non_kinematic_mask = (particle_types != 3).clone().detach().to(self._device)
+        sampled_noise *= non_kinematic_mask.reshape(-1, 1, 1)
+
+        noisy_position_sequence = position_sequence + sampled_noise
+
+        # forward pass through the graph network
+        predicted_normalized_acceleration = self.forward(
+            noisy_position_sequence,
+            None,
+            particle_types
+        )
+
+        next_position_adjusted = next_position + sampled_noise[:, -1]
+        target_normalized_acceleration = self._inverse_decoder_postprocessor(next_position_adjusted, noisy_position_sequence)
+
+        loss = (predicted_normalized_acceleration - target_normalized_acceleration) ** 2
+        loss = loss.sum(dim=-1)
+        num_non_kinematic = non_kinematic_mask.sum()    
+
+        loss = torch.where(non_kinematic_mask.bool(), loss, torch.zeros_like(loss))
+        loss = loss.sum() / num_non_kinematic
+
+        self.log('validation_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         return loss
 
