@@ -23,7 +23,7 @@ def main():
     os.makedirs('rollouts', exist_ok=True)
 
     ds = SimulationDataset(device=args.device, data_dir='data/train', window_size=6)
-    metadata = generate_metadata(ds)
+    metadata = generate_metadata(ds, mode=args.mode)
 
     simulator = Simulator(
         particle_dimension=2,
@@ -43,7 +43,7 @@ def main():
     if args.device == 'cuda':
         simulator.cuda()
 
-    trainer = L.Trainer(max_steps=int(args.training_steps), accelerator=args.device)
+    trainer = L.Trainer(max_steps=int(args.training_steps), accelerator=args.device, enable_checkpointing=True)
 
     if args.mode == 'train':
         train_set_size = int(len(ds) * 0.8)

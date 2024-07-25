@@ -4,7 +4,7 @@ import torch
 import numpy as np
 from torch_geometric.data import Data, Dataset
 
-def generate_metadata(dataset):
+def generate_metadata(dataset, mode='train'):
     # Initialize accumulators for velocity and acceleration sums
     metadata = {}
     # Assuming 2 dimensions (x and y)
@@ -58,9 +58,10 @@ def generate_metadata(dataset):
     metadata['dim'] = 2
     metadata['dt'] = 0.0025
 
-    import json
-    with open('metadata.json', 'w') as f:
-        json.dump(metadata, f)
+    if mode == 'train':
+        import json
+        with open('metadata.json', 'w') as f:
+            json.dump(metadata, f)
     
     return metadata
 

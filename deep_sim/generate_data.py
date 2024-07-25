@@ -20,10 +20,10 @@ def generate_random_configuration():
 
 
 def main():
-    num_simulations = 50
+    num_simulations = 1
     scenes_path = "/Users/rafajm/.pyenv/versions/3.9.2/envs/simulation/bin/data/Scenes"
     file_path = "DamBreakModel_2D.json"
-    output_dir_base = "/Users/rafajm/code/rwth/thesis/master_thesis/deep_sim/data/train"
+    output_dir_base = "/Users/rafajm/code/rwth/thesis/master_thesis/deep_sim/data/test"
 
     with open(os.path.join(scenes_path, file_path), 'r') as f:
         original_data = json.load(f)
