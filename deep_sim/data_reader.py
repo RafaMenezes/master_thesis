@@ -70,13 +70,15 @@ class SimulationDataset(Dataset):
     def __init__(
             self, 
             device='cuda',
-            data_dir='data/train', 
+            mode='train', 
             window_size=6
         ):
         super().__init__()
         self.device = device
         self.window_size = window_size
-        self.data_windows, self.labels, self.n_particles_per_example = self.load_simulation_files(data_dir)
+        self.mode = mode
+
+        self.data_windows, self.labels, self.n_particles_per_example = self.load_simulation_files(os.path.join('data', mode))
 
 
     def load_simulation_files(self, data_dir):
@@ -128,4 +130,3 @@ class SimulationDataset(Dataset):
         label = self.labels[idx]
         n_particles = self.n_particles_per_example[idx]
         return data_window, label #, n_particles
-    
