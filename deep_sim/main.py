@@ -7,7 +7,7 @@ import lightning as L
 from lightning.pytorch.callbacks import ModelCheckpoint
 from torch.utils.data import DataLoader, random_split
 
-from learned_simulator import Simulator
+from learned_simulator import Simulator, UpdateMetadataCallback
 from data_reader import SimulationDataset, generate_metadata
 
 from infer import eval_rollout_splishsplash_data
@@ -32,6 +32,7 @@ def main():
 
     if args.mode == 'train':
 
+        update_callback = UpdateMetadataCallback(file_path='metadata.json')
 
         simulator = Simulator(
             particle_dimension=2,
@@ -44,6 +45,7 @@ def main():
             num_particle_types=9,
             particle_type_embedding_size=16,
             metadata=metadata,
+            mode=args.mode,
             strategy=args.strategy,
             device=args.device,
         )
@@ -63,7 +65,7 @@ def main():
             max_steps=int(args.training_steps), 
             accelerator=args.device, 
             enable_checkpointing=True, 
-            callbacks=[checkpoint_callback]
+            callbacks=[checkpoint_callback, update_callback]
         )
 
         train_set_size = int(len(ds) * 0.8)
@@ -91,13 +93,14 @@ def main():
             num_particle_types=9,
             particle_type_embedding_size=16,
             metadata=metadata,
+            mode=args.mode,
             strategy=args.strategy,
             device=args.device,
         )
 
         if args.device == 'cuda':
             simulator.cuda()
-            
+
         eval_rollout_splishsplash_data(ds, simulator, args.model_name, metadata, device=args.device)
 
 

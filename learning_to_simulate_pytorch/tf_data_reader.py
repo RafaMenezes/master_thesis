@@ -17,7 +17,7 @@ def prepare_data_from_tfds(data_path='data/', is_rollout=False, batch_size=2):
             window_length=6 + 1)
         ds = ds.flat_map(split_with_window)
         ds = ds.map(prepare_inputs)
-        ds = ds.repeat()
+        # ds = ds.repeat()
         ds = ds.shuffle(512)
         ds = batch_concat(ds, batch_size)
     ds = tfds.as_numpy(ds)
