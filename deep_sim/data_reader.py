@@ -54,7 +54,7 @@ def generate_metadata(dataset, mode='train'):
     metadata['acc_std'] = list(std_acceleration)
     metadata['bounds'] = [[-2.0, 2.0], [0.0, 4.0]]
     metadata['sequence_length'] = len(dataset)
-    metadata['default_connectivity_radius'] = 0.05
+    metadata['default_connectivity_radius'] = 0.2
     metadata['dim'] = 2
     metadata['dt'] = 0.0025
 
