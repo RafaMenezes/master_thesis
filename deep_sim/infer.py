@@ -2,6 +2,7 @@ import os
 import json
 import pickle
 import torch
+from tqdm import tqdm
 
 # from tf_data_reader import prepare_data_from_tfds
 
@@ -84,34 +85,37 @@ def eval_rollout_splishsplash_data(ds, simulator, model_name, metadata=None, dev
 
     simulator.eval()
 
-    for _, labels in ds:
-        # particle types are not really being used, only if we had obstacles
-        particle_types = torch.full((current_positions.shape[0],), 5).to(device)
-        
-        next_position = simulator.predict_positions(
-            current_positions,
-            None,
-            particle_types
-        )
+    with torch.no_grad():
+        for _, labels in tqdm(ds):
+            current_positions = current_positions.to(device)
+            labels = labels.to(device)
+            # particle types are not really being used, only if we had obstacles
+            particle_types = torch.full((current_positions.shape[0],), 5).to(device)
+            
+            next_position = simulator.predict_positions(
+                current_positions,
+                None,
+                particle_types
+            )
 
-        ground_truth_rollout.append(labels)
-        predictions.append(next_position)
-        current_positions = torch.cat([current_positions[:, 1:], next_position[:, None, :]], dim=1)
+            ground_truth_rollout.append(labels)
+            predictions.append(next_position)
+            current_positions = torch.cat([current_positions[:, 1:], next_position[:, None, :]], dim=1)
 
-    ground_truth_rollout = torch.stack(ground_truth_rollout)
-    predictions = torch.stack(predictions)
+        ground_truth_rollout = torch.stack(ground_truth_rollout)
+        predictions = torch.stack(predictions)
 
-    loss = (predictions - ground_truth_rollout) ** 2
+        loss = (predictions - ground_truth_rollout) ** 2
 
-    example_rollout = {
-        'initial_positions': initial_positions.permute(1,0,2).cpu().numpy(),
-        'predicted_rollout': predictions.detach().cpu().numpy(),
-        'ground_truth_rollout': ground_truth_rollout.cpu().numpy(),
-        'particle_types': particle_types.cpu().numpy(),
-    }
+        example_rollout = {
+            'initial_positions': initial_positions.permute(1,0,2).cpu().numpy(),
+            'predicted_rollout': predictions.detach().cpu().numpy(),
+            'ground_truth_rollout': ground_truth_rollout.cpu().numpy(),
+            'particle_types': particle_types.cpu().numpy(),
+        }
 
-    example_rollout['metadata'] = metadata
-    filename = f'rollout_{model_name}.pkl'
-    filename = os.path.join('rollouts/', filename)
-    with open(filename, 'wb') as f:
-        pickle.dump(example_rollout, f)
+        example_rollout['metadata'] = metadata
+        filename = f'rollout_{model_name}.pkl'
+        filename = os.path.join('rollouts/', filename)
+        with open(filename, 'wb') as f:
+            pickle.dump(example_rollout, f)

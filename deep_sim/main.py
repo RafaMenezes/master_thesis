@@ -26,7 +26,9 @@ def main():
     os.makedirs('rollouts', exist_ok=True)
 
     ds = SimulationDataset(device=args.device, mode=args.mode, window_size=6)
-    metadata = generate_metadata(ds, mode=args.mode)
+    with open('metadata.json', 'rb') as f:
+        metadata = json.load(f)
+    # metadata = generate_metadata(ds, mode=args.mode)
 
     if args.mode == 'train':
 
@@ -53,7 +55,7 @@ def main():
             dirpath='checkpoints/', 
             filename=f'{args.model_name}',  
             save_top_k=1,  
-            monitor='val_loss',
+            monitor='validation_loss',
             mode='min'
         )
 
@@ -78,6 +80,7 @@ def main():
         checkpoint_path = f'checkpoints/{args.model_name}.ckpt'
         simulator = Simulator.load_from_checkpoint(
             checkpoint_path,
+            map_location=args.device,
             particle_dimension=2,
             node_in=30,
             edge_in=3,

@@ -91,6 +91,7 @@ class Simulator(L.LightningModule):
     def _encoder_preprocessor(self, position_sequence, n_particles_per_example, particle_types):
         n_total_points = position_sequence.shape[0]
         most_recent_position = position_sequence[:, -1] # (n_nodes, 2)
+
         velocity_sequence = time_diff(position_sequence) # Finite-difference.
         # senders and receivers are integers of shape (E,)
         senders, receivers = compute_connectivity(most_recent_position, n_particles_per_example, self._connectivity_radius, self._device)
@@ -106,7 +107,7 @@ class Simulator(L.LightningModule):
         # boundaries are an array of shape [num_dimensions, 2], where the second
         # axis, provides the lower/upper boundaries.
         boundaries = torch.tensor(self._boundaries, requires_grad=False).float().to(self._device)
-       
+
         distance_to_lower_boundary = (most_recent_position - boundaries[:, 0][None])
         distance_to_upper_boundary = (boundaries[:, 1][None] - most_recent_position)
         distance_to_boundaries = torch.cat([distance_to_lower_boundary, distance_to_upper_boundary], dim=1)
@@ -228,7 +229,7 @@ class Simulator(L.LightningModule):
         # forward pass through the graph network
         predicted_normalized_acceleration = self.forward(
             noisy_position_sequence,
-            None,
+            num_particles,
             particle_types
         )
 
