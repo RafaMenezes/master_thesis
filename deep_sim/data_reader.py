@@ -80,6 +80,10 @@ class SimulationDataset(Dataset):
 
         self.data_windows, self.labels, self.n_particles_per_example = self.load_simulation_files(os.path.join('data', mode))
 
+    def extract_number(self, filename):
+    # Extract the numerical part of the filename
+        return int(filename.split('_')[-1].split('.')[0])
+
 
     def load_simulation_files(self, data_dir):
         data_windows = []
@@ -89,10 +93,9 @@ class SimulationDataset(Dataset):
         for sim_folder in os.listdir(data_dir):
             sub_data_dir = os.path.join(data_dir, sim_folder,'vtk')
 
-            mesh_files = sorted([f for f in os.listdir(sub_data_dir) if f.endswith('.vtk')])
+            mesh_files = sorted([f for f in os.listdir(sub_data_dir) if f.endswith('.vtk')], key=self.extract_number)
             all_positions = []
             for mesh_file in mesh_files:
-
                 mesh = meshio.read(os.path.join(sub_data_dir, mesh_file))
                 xy_coordinates = mesh.points[:, :2].astype('float32')
                 

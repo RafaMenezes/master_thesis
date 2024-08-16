@@ -101,6 +101,7 @@ class Simulator(L.LightningModule):
     def _encoder_preprocessor(self, position_sequence, n_particles_per_example, particle_types):
         n_total_points = position_sequence.shape[0]
         most_recent_position = position_sequence[:, -1] # (n_nodes, 2)
+
         velocity_sequence = time_diff(position_sequence) # Finite-difference.
         # senders and receivers are integers of shape (E,)
         senders, receivers = compute_connectivity(most_recent_position, n_particles_per_example, self._connectivity_radius, self._device)
@@ -116,7 +117,7 @@ class Simulator(L.LightningModule):
         # boundaries are an array of shape [num_dimensions, 2], where the second
         # axis, provides the lower/upper boundaries.
         boundaries = torch.tensor(self._boundaries, requires_grad=False).float().to(self._device)
-       
+
         distance_to_lower_boundary = (most_recent_position - boundaries[:, 0][None])
         distance_to_upper_boundary = (boundaries[:, 1][None] - most_recent_position)
         distance_to_boundaries = torch.cat([distance_to_lower_boundary, distance_to_upper_boundary], dim=1)
@@ -186,8 +187,8 @@ class Simulator(L.LightningModule):
 
     def update_stats(self, position_sequence):
         
-        vel_sequence = torch.tensor(position_sequence[:, 1:] - position_sequence[:, :-1]).to(self._device)
-        acc_sequence = torch.tensor(vel_sequence[:, 1:] - vel_sequence[:, :-1]).to(self._device)
+        vel_sequence = (position_sequence[:, 1:] - position_sequence[:, :-1]).clone().detach().to(self._device)
+        acc_sequence = (vel_sequence[:, 1:] - vel_sequence[:, :-1]).clone().detach().to(self._device)
         
         # Calculate means
         current_vel_sum = torch.sum(vel_sequence, dim=(0, 1))
@@ -226,6 +227,9 @@ class Simulator(L.LightningModule):
         position_sequence, next_position = batch
 
         batch_size, num_particles, window_size, pos_dim = position_sequence.shape
+
+        n_particles_per_example = [num_particles for _ in range(batch_size)]
+
         position_sequence = position_sequence.view(-1, window_size, pos_dim)  # shape: (batch_size * num_particles, window_size, pos_dim)
         next_position = next_position.view(-1, pos_dim)
 
@@ -242,7 +246,7 @@ class Simulator(L.LightningModule):
         # forward pass through the graph network
         predicted_normalized_acceleration = self.forward(
             noisy_position_sequence,
-            None,
+            n_particles_per_example,
             particle_types
         )
 
@@ -264,6 +268,9 @@ class Simulator(L.LightningModule):
         position_sequence, next_position = batch
 
         batch_size, num_particles, window_size, pos_dim = position_sequence.shape
+
+        n_particles_per_example = [num_particles for _ in range(batch_size)]
+        
         position_sequence = position_sequence.view(-1, window_size, pos_dim)  # shape: (batch_size * num_particles, window_size, pos_dim)
         next_position = next_position.view(-1, pos_dim)
 
@@ -278,7 +285,7 @@ class Simulator(L.LightningModule):
         # forward pass through the graph network
         predicted_normalized_acceleration = self.forward(
             noisy_position_sequence,
-            None,
+            n_particles_per_example,
             particle_types
         )
 
@@ -370,6 +377,8 @@ class UpdateMetadataCallback(Callback):
         # Save the updated metadata back to the JSON file
         with open(self.file_path, 'w') as f:
             json.dump(metadata, f, indent=4)
+
+        print(f"Metadata file saved with new values: {self._normalization_stats}")
 
     def on_train_end(self, trainer, pl_module):
         # Read the current metadata

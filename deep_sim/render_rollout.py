@@ -56,7 +56,6 @@ def main():
         plot_info.append((ax, trajectory, points))
 
     num_steps = trajectory.shape[0]
-
     def update(step_i):
         outputs = []
         for _, trajectory, points in plot_info:

@@ -161,7 +161,7 @@ class Simulator(nn.Module):
     def get_predicted_and_target_normalized_accelerations(self, next_position, position_sequence_noise, position_sequence, n_particles_per_example, particle_types):
         # Adds noise to the position sequence -- helps stabilize the errors along the rollout in inference
         noisy_position_sequence = position_sequence + position_sequence_noise
-        if self.training: print("treino")
+
         # Perform a forward pass through the graph network
         input_graph, _, normal_edges_slice, reverse_edges_slice  = self._encoder_preprocessor(noisy_position_sequence, n_particles_per_example, particle_types)
 
