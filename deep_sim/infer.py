@@ -84,6 +84,7 @@ def eval_rollout_splishsplash_data(ds, simulator, model_name, metadata=None, dev
     predictions = []
 
     simulator.eval()
+    print([current_positions.shape[0]])
 
     with torch.no_grad():
         for _, labels in tqdm(ds):
@@ -94,7 +95,7 @@ def eval_rollout_splishsplash_data(ds, simulator, model_name, metadata=None, dev
             
             next_position = simulator.predict_positions(
                 current_positions,
-                None,
+                [current_positions.shape[0]],
                 particle_types
             )
 

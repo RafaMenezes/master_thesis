@@ -49,7 +49,7 @@ def compute_connectivity(node_features, n_particles_per_example, radius, device,
         # handle batches. Default is 2 examples per batch
 
         # Specify examples id for particles/points
-        batch_ids =  None#torch.cat([torch.LongTensor([i for _ in range(n)]) for i, n in enumerate(n_particles_per_example)]).to(device)
+        batch_ids =  torch.cat([torch.LongTensor([i for _ in range(n)]) for i, n in enumerate(n_particles_per_example)]).to(device)
 
         # radius = radius + 0.00001 # radius_graph takes r < radius not r <= radius
         edge_index = radius_graph(node_features, r=radius, batch=batch_ids, loop=add_self_edges, max_num_neighbors=500) # (2, n_edges)

@@ -51,7 +51,7 @@ class InteractionNetwork(MessagePassing):
             nn.LayerNorm(edge_out)])
 
 
-    def forward(self, latent_graph):
+    def forward(self, latent_graph, normal_edges_slice, reverse_edges_slice):
         # x: (E, node_in)
         # edge_index: (2, E)
         # e_features: (E, edge_in)
@@ -160,7 +160,7 @@ class Processor(MessagePassing):
     ):
         super().__init__(aggr='max')
         self.gnn_stacks = nn.ModuleList([
-            SymmetricInteractionNetwork(
+            InteractionNetwork(
                 node_in=node_in, 
                 node_out=node_out,
                 edge_in=edge_in, 

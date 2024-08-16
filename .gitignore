@@ -169,3 +169,5 @@ logfile
 imgui.ini
 *.json
 lightning_logs/
+*.gif
+*.ckpt
