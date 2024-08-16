@@ -171,3 +171,4 @@ imgui.ini
 lightning_logs/
 *.gif
 *.ckpt
+/figures
