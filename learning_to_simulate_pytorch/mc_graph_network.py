@@ -68,8 +68,13 @@ class InteractionNetwork(MessagePassing):
 
 
     def message(self, edge_index, x_i, x_j, e_features):
+        print('shape of x_i: ', x_i.shape)
+        print('shape of x_j: ', x_j.shape)
+        print('shape of edge_features: ', e_features.shape)
         e_features = torch.cat([x_i, x_j, e_features], dim=-1)
+        print('shape of edge_features after cat: ', e_features.shape)
         e_features = self.edge_fn(e_features)
+        print('shape of edge_features after NN: ', e_features.shape)
 
         return e_features
 

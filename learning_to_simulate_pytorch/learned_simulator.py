@@ -85,7 +85,6 @@ class Simulator(nn.Module):
         normalized_velocity_sequence = (velocity_sequence - velocity_stats['mean']) / velocity_stats['std']
         flat_velocity_sequence = normalized_velocity_sequence.reshape(n_total_points, -1)
         node_features.append(flat_velocity_sequence)
-
         # Normalized clipped distances to lower and upper boundaries.
         # boundaries are an array of shape [num_dimensions, 2], where the second
         # axis, provides the lower/upper boundaries.
@@ -111,7 +110,6 @@ class Simulator(nn.Module):
 
         normalized_relative_distances = torch.norm(normalized_relative_displacements, dim=-1, keepdim=True)
         edge_features.append(normalized_relative_distances)
-
         graph = Data(
             x = torch.cat(node_features, dim=-1),
             edge_index = torch.stack([senders, receivers]),
