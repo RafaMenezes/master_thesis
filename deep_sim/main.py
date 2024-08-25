@@ -16,7 +16,7 @@ from infer import eval_rollout_splishsplash_data
 def main():
     parser = argparse.ArgumentParser(description='Train or infer based on given model.')
     parser.add_argument('--mode', required=True, choices=['train', 'test'], help='Mode to run the model in.')
-    parser.add_argument('--training_steps', default=1e6, help='Number of training steps to utilize in training mode.')
+    parser.add_argument('--training_steps', default=500000, help='Number of training steps to utilize in training mode.')
     parser.add_argument('--model_name', default='model', help='In case of training, where to save the model. Else, where to load from.')
     parser.add_argument('--strategy', default='baseline', choices=['baseline', 'mc'], help='Strategy to learn (baseline or mc).')
     parser.add_argument('--device', default='cuda', choices=['cpu', 'cuda'], help='CPU or GPU (cuda).')
@@ -68,7 +68,7 @@ def main():
             callbacks=[checkpoint_callback, update_callback]
         )
 
-        train_set_size = int(len(ds) * 0.8)
+        train_set_size = int(len(ds) * 0.9)
         valid_set_size = len(ds) - train_set_size
         seed = torch.Generator().manual_seed(42)
         train_set, val_set = random_split(ds, [train_set_size, valid_set_size], generator=seed)

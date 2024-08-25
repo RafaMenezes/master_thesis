@@ -4,67 +4,6 @@ import torch
 import numpy as np
 from torch_geometric.data import Data, Dataset
 
-def generate_metadata(dataset, mode='train'):
-    # Initialize accumulators for velocity and acceleration sums
-    metadata = {}
-    # Assuming 2 dimensions (x and y)
-    total_vel_sum = torch.zeros(2).to(dataset.device)
-    total_acc_sum = torch.zeros(2).to(dataset.device) 
-    total_vel_count = 0
-    total_acc_count = 0
-
-    # For standard deviation calculations
-    vel_list_x = []
-    vel_list_y = []
-    acc_list_x = []
-    acc_list_y = []
-
-    # Iterate over the dataset
-    for features, labels in dataset:
-        vel_sequence = features[:, 1:] - features[:, :-1]
-        acc_sequence = vel_sequence[:, 1:] - vel_sequence[:, :-1]
-        
-        # Calculate means
-        total_vel_sum += torch.sum(vel_sequence, dim=(0, 1))
-        total_acc_sum += torch.sum(acc_sequence, dim=(0, 1))
-        total_vel_count += vel_sequence.numel()  # Only count the values in the velocity sequence
-        total_acc_count += acc_sequence.numel()
-        
-        # Store velocity and acceleration sequences for standard deviation calculation
-        vel_list_x.append(vel_sequence[:, 0].reshape(-1))  # Flatten x dimension to 1D tensor for std calculation
-        vel_list_y.append(vel_sequence[:, 1].reshape(-1))  # Flatten y dimension to 1D tensor for std calculation
-        acc_list_x.append(acc_sequence[:, 0].reshape(-1))  # Flatten x dimension to 1D tensor for std calculation
-        acc_list_y.append(acc_sequence[:, 1].reshape(-1))  # Flatten y dimension to 1D tensor for std calculation
-
-    # Compute means
-    mean_velocity = np.float64(total_vel_sum.cpu().numpy() / total_vel_count)
-    mean_acceleration = np.float64(total_acc_sum.cpu().numpy() / total_acc_count)
-
-    # Calculate standard deviations
-    vel_tensor = torch.stack([torch.cat(vel_list_x), torch.cat(vel_list_y)])
-    acc_tensor = torch.stack([torch.cat(acc_list_x), torch.cat(acc_list_y)])
-
-
-    std_velocity = np.float64(torch.std(vel_tensor, dim=1, unbiased=False).cpu().numpy())
-    std_acceleration = np.float64(torch.std(acc_tensor, dim=1, unbiased=False).cpu().numpy())
-
-    metadata['vel_mean'] = list(mean_velocity)
-    metadata['acc_mean'] = list(mean_acceleration)
-    metadata['vel_std'] = list(std_velocity)
-    metadata['acc_std'] = list(std_acceleration)
-    metadata['bounds'] = [[-2.0, 2.0], [0.0, 4.0]]
-    metadata['sequence_length'] = len(dataset)
-    metadata['default_connectivity_radius'] = 0.2
-    metadata['dim'] = 2
-    metadata['dt'] = 0.0025
-
-    if mode == 'train':
-        import json
-        with open('metadata.json', 'w') as f:
-            json.dump(metadata, f)
-    
-    return metadata
-
 
 class SimulationDataset(Dataset):
     def __init__(
