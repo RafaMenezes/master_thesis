@@ -4,11 +4,11 @@ import numpy as np
 import torch
 import argparse
 import lightning as L
-from lightning.pytorch.callbacks import ModelCheckpoint
+from lightning.pytorch.callbacks import ModelCheckpoint, Callback
 from torch.utils.data import DataLoader, random_split
 
 from learned_simulator import Simulator, UpdateMetadataCallback
-from data_reader import SimulationDataset, generate_metadata
+from data_reader import SimulationDataset
 
 from infer import eval_rollout_splishsplash_data
 
@@ -53,6 +53,11 @@ def main():
         if args.device == 'cuda':
             simulator.cuda()
 
+        class SaveAtMaxStepsCallback(Callback):
+            def on_train_end(self, trainer, pl_module):
+                if trainer.global_step >= trainer.max_steps:
+                    trainer.save_checkpoint(f"checkpoints/{args.model_name}.ckpt")
+
         checkpoint_callback = ModelCheckpoint(
             dirpath='checkpoints/', 
             filename=f'{args.model_name}',  
@@ -65,7 +70,7 @@ def main():
             max_steps=int(args.training_steps), 
             accelerator=args.device, 
             enable_checkpointing=True, 
-            callbacks=[checkpoint_callback, update_callback]
+            callbacks=[checkpoint_callback, SaveAtMaxStepsCallback(), update_callback]
         )
 
         train_set_size = int(len(ds) * 0.9)
