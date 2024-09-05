@@ -7,23 +7,23 @@ import meshio
 
 
 def generate_random_configuration():
-    translation_x = random.uniform(-2.0, 1.0)
-    translation_y = random.uniform(0.0, 1.0)
+    translation_x = random.uniform(0.0, 0.49)
+    translation_y = random.uniform(0.0, 0.49)
     
     return {
         'denseMode': 0,
-        'start': [0.0, 0.0, -1],
-        'end': [1.0, 1.0, 1],
+        'start': [0.11, 0.11, -1],
+        'end': [0.4, 0.4, 1],
         'translation': [translation_x, translation_y, 0.0],
         'scale': [1, 1, 1]
     }
 
 
 def main():
-    num_simulations = 1000
+    num_simulations = 1
     scenes_path = "/Users/rafajm/.pyenv/versions/3.9.2/envs/simulation/bin/data/Scenes"
     file_path = "DamBreakModel_2D.json"
-    output_dir_base = "/Users/rafajm/code/rwth/thesis/master_thesis/deep_sim/data/train"
+    output_dir_base = "/Users/rafajm/code/rwth/thesis/master_thesis/deep_sim/data/test"
 
     with open(os.path.join(scenes_path, file_path), 'r') as f:
         original_data = json.load(f)

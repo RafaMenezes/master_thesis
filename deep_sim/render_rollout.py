@@ -59,6 +59,7 @@ def main():
     def update(step_i):
         outputs = []
         for _, trajectory, points in plot_info:
+            if step_i > 1000: break
             for particle_type, line in points.items():
                 mask = rollout_data["particle_types"] == particle_type
                 line.set_data(trajectory[step_i, mask, 0],

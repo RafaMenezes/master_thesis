@@ -10,7 +10,7 @@ def build_mlp(
     layer_sizes,
     output_size=None,
     output_activation=nn.Identity,
-    activation=nn.ReLU,
+    activation=nn.Tanh,
 ):
     sizes = [input_size] + layer_sizes
     if output_size:
@@ -50,7 +50,6 @@ def compute_connectivity(node_features, n_particles_per_example, radius, device,
 
         # Specify examples id for particles/points
         batch_ids =  torch.cat([torch.LongTensor([i for _ in range(n)]) for i, n in enumerate(n_particles_per_example)]).to(device)
-
         # radius = radius + 0.00001 # radius_graph takes r < radius not r <= radius
         edge_index = radius_graph(node_features, r=radius, batch=batch_ids, loop=add_self_edges, max_num_neighbors=500) # (2, n_edges)
         receivers = edge_index[0, :]
