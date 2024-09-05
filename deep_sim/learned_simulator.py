@@ -32,7 +32,8 @@ class Simulator(L.LightningModule):
         self._num_particle_types = num_particle_types
         self._strategy = strategy
         self._device = device
-        self.noise_std = 6.7e-4
+        # self.noise_std = 6.7e-4
+        self.noise_std = 0.0003
         # information from metadata file
         self.vel_sum = torch.zeros(2).to(self._device)
         self.acc_sum = torch.zeros(2).to(self._device)
@@ -42,12 +43,12 @@ class Simulator(L.LightningModule):
         self.acc_count = 0
         self._normalization_stats = {
             'acceleration': {
-                'mean':torch.FloatTensor(metadata['acc_mean']).to(device) if mode == 'test' else torch.zeros(2).to(self._device), 
-                'std':torch.sqrt(torch.FloatTensor(metadata['acc_std'])**2 + self.noise_std**2).to(device) if mode == 'test' else torch.FloatTensor([self.noise_std]).to(device),
+                'mean':torch.FloatTensor(metadata['acc_mean']).to(device), 
+                'std':torch.sqrt(torch.FloatTensor(metadata['acc_std'])**2 + self.noise_std**2).to(device),
             }, 
             'velocity': {
-                'mean':torch.FloatTensor(metadata['vel_mean']).to(device) if mode == 'test' else torch.zeros(2).to(self._device), 
-                'std':torch.sqrt(torch.FloatTensor(metadata['vel_std'])**2 + self.noise_std**2).to(device) if mode == 'test' else torch.FloatTensor([self.noise_std]).to(device),
+                'mean':torch.FloatTensor(metadata['vel_mean']).to(device), 
+                'std':torch.sqrt(torch.FloatTensor(metadata['vel_std'])**2 + self.noise_std**2).to(device),
             }, 
         }
         self._connectivity_radius=metadata['default_connectivity_radius']
@@ -185,47 +186,10 @@ class Simulator(L.LightningModule):
         return next_position
 
 
-    def update_stats(self, position_sequence):
-        
-        vel_sequence = (position_sequence[:, 1:] - position_sequence[:, :-1]).clone().detach().to(self._device)
-        acc_sequence = (vel_sequence[:, 1:] - vel_sequence[:, :-1]).clone().detach().to(self._device)
-        
-        # Calculate means
-        current_vel_sum = torch.sum(vel_sequence, dim=(0, 1))
-        current_acc_sum = torch.sum(acc_sequence, dim=(0, 1))
-        current_vel_count = vel_sequence.numel()  # Only count the values in the velocity sequence
-        current_acc_count = acc_sequence.numel()
-        current_vel_sum_sq = torch.sum(vel_sequence ** 2, dim=(0, 1))
-        current_acc_sum_sq = torch.sum(acc_sequence ** 2, dim=(0, 1))
-        
-        # Assuming 2 dimensions (x and y)
-        self.vel_sum += current_vel_sum
-        self.acc_sum += current_acc_sum
-        self.vel_sum_squared += current_vel_sum_sq
-        self.acc_sum_squared += current_acc_sum_sq
-        self.vel_count += current_vel_count
-        self.acc_count += current_acc_count 
-
-
-        # Compute means
-        mean_velocity = np.float64(self.vel_sum.cpu().numpy() / self.vel_count)
-        mean_acceleration = np.float64(self.acc_sum.cpu().numpy() / self.acc_count)
-
-        mean_velocity_squared = np.float64(self.vel_sum_squared.cpu().numpy() / self.vel_count)
-        mean_acceleration_squared = np.float64(self.acc_sum_squared.cpu().numpy() / self.acc_count)
-
-
-        std_velocity = np.float64((mean_velocity_squared - mean_velocity**2))
-        std_acceleration = np.float64((mean_acceleration_squared - mean_acceleration**2))
-        self._normalization_stats['velocity']['mean'] = torch.FloatTensor(mean_velocity).to(self._device)
-        self._normalization_stats['velocity']['std'] = torch.sqrt(torch.FloatTensor(std_velocity)**2 + self.noise_std**2).to(self._device)
-        self._normalization_stats['acceleration']['mean'] = torch.FloatTensor(mean_acceleration).to(self._device)
-        self._normalization_stats['acceleration']['std'] = torch.sqrt(torch.FloatTensor(std_acceleration)**2 + self.noise_std**2).to(self._device)
-
-    
     def training_step(self, batch, batch_idx):
         position_sequence, next_position = batch
 
+        # --- NEW DATA ----
         batch_size, num_particles, window_size, pos_dim = position_sequence.shape
 
         n_particles_per_example = [num_particles for _ in range(batch_size)]
@@ -241,8 +205,29 @@ class Simulator(L.LightningModule):
 
         noisy_position_sequence = position_sequence + sampled_noise
 
-        self.update_stats(noisy_position_sequence)
-        
+        # --- END NEW DATA ---- 
+
+        # --- OLD DATA ----
+        # position_sequence['position'] = position_sequence['position'].squeeze(0)
+        # position_sequence['n_particles_per_example'] = position_sequence['n_particles_per_example'].squeeze(0)
+        # position_sequence['particle_type'] = position_sequence['particle_type'].squeeze(0)
+        # next_position = next_position.squeeze(0)
+
+        # sampled_noise = get_random_walk_noise_for_position_sequence(position_sequence['position'], noise_std_last_step=6.7e-4).to('cuda')
+        # non_kinematic_mask = (position_sequence['particle_type'] != 3).clone().detach()
+        # sampled_noise *= non_kinematic_mask.reshape(-1, 1, 1)
+
+        # noisy_position_sequence = position_sequence['position'] + sampled_noise
+
+        # predicted_normalized_acceleration = self.forward(
+        #     noisy_position_sequence,
+        #     position_sequence['n_particles_per_example'],
+        #     position_sequence['particle_type']
+        # )
+
+        # self.update_stats(noisy_position_sequence)
+        # --- END OLD DATA ---- 
+
         # forward pass through the graph network
         predicted_normalized_acceleration = self.forward(
             noisy_position_sequence,
@@ -255,14 +240,28 @@ class Simulator(L.LightningModule):
 
         loss = (predicted_normalized_acceleration - target_normalized_acceleration) ** 2
         loss = loss.sum(dim=-1)
+        
         num_non_kinematic = non_kinematic_mask.sum()    
 
         loss = torch.where(non_kinematic_mask.bool(), loss, torch.zeros_like(loss))
         loss = loss.sum() / num_non_kinematic
 
-        self.log('training_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        # Predicted velocities for zero-divergence loss term
+        # divergence_loss_weight = 0.01
+        # predicted_positions = self._decoder_postprocessor(predicted_normalized_acceleration, position_sequence)
+        # predicted_positions.requires_grad_(True)
+        # predicted_velocities = predicted_positions - position_sequence[:, -1, :]
+        # predicted_velocities.requires_grad_(True)
+        # divergence = self.compute_divergence(predicted_velocities, predicted_positions, pos_dim)
+        # divergence_loss = (divergence ** 2).mean()
 
-        return loss
+        total_loss = loss #+ divergence_loss_weight * divergence_loss
+
+        self.log('total_loss', total_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True, batch_size=2)
+        self.log('training_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True, batch_size=2)
+        # self.log('divergence_loss', divergence_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True, batch_size=2)
+
+        return total_loss
     
     def validation_step(self, batch, batch_idx):
         position_sequence, next_position = batch
@@ -329,6 +328,30 @@ class Simulator(L.LightningModule):
     #     next_position_adjusted = next_position + position_sequence_noise[:, -1]
     #     target_normalized_acceleration = self._inverse_decoder_postprocessor(next_position_adjusted, noisy_position_sequence)
     #     return predicted_normalized_acceleration, target_normalized_acceleration
+
+    def compute_divergence(self, velocity, last_position, pos_dim):
+        # Initialize divergence to zero
+        divergence = torch.zeros(velocity.shape[0], device=velocity.device)
+
+        for i in range(pos_dim):
+            # Compute the gradient of each velocity component with respect to its corresponding spatial coordinate
+            grad_outputs = torch.ones_like(velocity[:, i])  # Should match the shape of velocity[:, i]
+
+            grad = torch.autograd.grad(
+                outputs=velocity[:, i],  # i-th component of velocity
+                inputs=last_position,  # Spatial positions
+                grad_outputs=grad_outputs,
+                create_graph=True,
+                retain_graph=True,
+                only_inputs=True
+            )[0][:, i]  # Extract gradient for i-th spatial dimension
+
+            divergence += grad
+
+        return divergence
+
+
+
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr_init)
         lr_scheduler = {
@@ -346,7 +369,7 @@ class Simulator(L.LightningModule):
         next_velocity = next_position - previous_position
         acceleration = next_velocity - previous_velocity
 
-        acceleration_stats = self._normalization_stats["acceleration"]
+        acceleration_stats = self._normalization_stats['acceleration']
         normalized_acceleration = (acceleration - acceleration_stats['mean']) / acceleration_stats['std']
         return normalized_acceleration
 
@@ -357,40 +380,3 @@ class Simulator(L.LightningModule):
 
     def load(self, path):
         self.load_state_dict(torch.load(path))
-
-
-class UpdateMetadataCallback(Callback):
-    def __init__(self, file_path):
-        self.file_path = file_path
-
-    def on_epoch_end(self, trainer, pl_module):
-        # Read the current metadata
-        with open(self.file_path, 'r') as f:
-            metadata = json.load(f)
-
-        # Update specific keys from pl_module._normalization_stats
-        metadata['vel_mean'] = pl_module._normalization_stats['velocity']['mean'].cpu().tolist()
-        metadata['acc_mean'] = pl_module._normalization_stats['acceleration']['mean'].cpu().tolist()
-        metadata['vel_std'] = pl_module._normalization_stats['velocity']['std'].cpu().tolist()
-        metadata['acc_std'] = pl_module._normalization_stats['acceleration']['std'].cpu().tolist()
-
-        # Save the updated metadata back to the JSON file
-        with open(self.file_path, 'w') as f:
-            json.dump(metadata, f, indent=4)
-
-        print(f"Metadata file saved with new values: {self._normalization_stats}")
-
-    def on_train_end(self, trainer, pl_module):
-        # Read the current metadata
-        with open(self.file_path, 'r') as f:
-            metadata = json.load(f)
-
-        # Update specific keys from pl_module._normalization_stats
-        metadata['vel_mean'] = pl_module._normalization_stats['velocity']['mean'].cpu().tolist()
-        metadata['acc_mean'] = pl_module._normalization_stats['acceleration']['mean'].cpu().tolist()
-        metadata['vel_std'] = pl_module._normalization_stats['velocity']['std'].cpu().tolist()
-        metadata['acc_std'] = pl_module._normalization_stats['acceleration']['std'].cpu().tolist()
-
-        # Save the updated metadata back to the JSON file
-        with open(self.file_path, 'w') as f:
-            json.dump(metadata, f, indent=4)

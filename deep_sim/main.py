@@ -1,5 +1,6 @@
 import os
 import json
+import sys
 import numpy as np
 import torch
 import argparse
@@ -7,10 +8,14 @@ import lightning as L
 from lightning.pytorch.callbacks import ModelCheckpoint, Callback
 from torch.utils.data import DataLoader, random_split
 
-from learned_simulator import Simulator, UpdateMetadataCallback
+from learned_simulator import Simulator
 from data_reader import SimulationDataset
 
 from infer import eval_rollout_splishsplash_data
+
+# sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# from tf_record_dataset import TFRecordDataset
+# from learning_to_simulate_pytorch.infer import infer
 
 
 def main():
@@ -26,13 +31,11 @@ def main():
     os.makedirs('rollouts', exist_ok=True)
 
     ds = SimulationDataset(device=args.device, mode=args.mode, window_size=6)
-    with open('metadata.json', 'rb') as f:
+    
+    with open('new_metadata.json', 'rb') as f:
         metadata = json.load(f)
-    # metadata = generate_metadata(ds, mode=args.mode)
-
+    
     if args.mode == 'train':
-
-        update_callback = UpdateMetadataCallback(file_path='metadata.json')
 
         simulator = Simulator(
             particle_dimension=2,
@@ -70,16 +73,17 @@ def main():
             max_steps=int(args.training_steps), 
             accelerator=args.device, 
             enable_checkpointing=True, 
-            callbacks=[checkpoint_callback, SaveAtMaxStepsCallback(), update_callback]
+            callbacks=[checkpoint_callback, SaveAtMaxStepsCallback()]
         )
 
+        # train_set = TFRecordDataset(data_path='../learning_to_simulate_pytorch/data/', device=args.device)
         train_set_size = int(len(ds) * 0.9)
         valid_set_size = len(ds) - train_set_size
         seed = torch.Generator().manual_seed(42)
         train_set, val_set = random_split(ds, [train_set_size, valid_set_size], generator=seed)
-
-        train_loader = DataLoader(train_set, batch_size=2, shuffle=True, num_workers=0)
-        val_loader = DataLoader(val_set, batch_size=2, shuffle=False, num_workers=0)
+        torch.multiprocessing.set_start_method('spawn')
+        train_loader = DataLoader(train_set, batch_size=2, shuffle=False, num_workers=4)
+        val_loader = DataLoader(val_set, batch_size=2, shuffle=False, num_workers=4)
 
         trainer.fit(model=simulator, train_dataloaders=train_loader, val_dataloaders=val_loader)
 
@@ -105,8 +109,14 @@ def main():
 
         if args.device == 'cuda':
             simulator.cuda()
-
         eval_rollout_splishsplash_data(ds, simulator, args.model_name, metadata, device=args.device)
+        
+        # infer(
+        #     simulator, 
+        #     data_path='../learning_to_simulate_pytorch/data/',
+        #     device=args.device
+        # ) 
+        
 
 
 if __name__ == '__main__':

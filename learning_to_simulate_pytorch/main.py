@@ -7,7 +7,8 @@ import argparse
 from learned_simulator import Simulator
 from train import train
 from infer import infer
-
+from infer import eval_rollout_splishsplash_data
+from data_reader import SimulationDataset
 noise_std = 6.7e-4
 
 
@@ -67,11 +68,13 @@ def main():
         )
     else:
         simulator.load(args.model_path)
-        infer(
-            simulator, 
-            data_path='data/',
-            device=args.device
-        )
+        ds = SimulationDataset(device=args.device, mode='test', window_size=6)
+        eval_rollout_splishsplash_data(ds, simulator, 'new_data_old_model', metadata, device=args.device)
+        # infer(
+        #     simulator, 
+        #     data_path='data/',
+        #     device=args.device
+        # )
 
 if __name__ == '__main__':
     main()

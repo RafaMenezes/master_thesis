@@ -1,3 +1,7 @@
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.dirname(__file__)))
+
 import functools
 import tensorflow.compat.v1 as tf
 import tensorflow_datasets as tfds
@@ -5,9 +9,10 @@ import reading_utils
 import tree
 
 
+
 def prepare_data_from_tfds(data_path='data/', is_rollout=False, batch_size=2):
     metadata = reading_utils._read_metadata(data_path)
-    ds = tf.data.TFRecordDataset([data_path+'train.tfrecord']) if not is_rollout else tf.data.TFRecordDataset([data_path+'valid.tfrecord'])
+    ds = tf.data.TFRecordDataset([data_path+'train.tfrecord']) if not is_rollout else tf.data.TFRecordDataset([data_path+'test.tfrecord'])
     ds = ds.map(functools.partial(reading_utils.parse_serialized_simulation_example, metadata=metadata))
     if is_rollout:
         ds = ds.map(prepare_rollout_inputs)
@@ -17,7 +22,7 @@ def prepare_data_from_tfds(data_path='data/', is_rollout=False, batch_size=2):
             window_length=6 + 1)
         ds = ds.flat_map(split_with_window)
         ds = ds.map(prepare_inputs)
-        # ds = ds.repeat()
+        ds = ds.repeat()
         ds = ds.shuffle(512)
         ds = batch_concat(ds, batch_size)
     ds = tfds.as_numpy(ds)

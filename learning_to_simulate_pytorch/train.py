@@ -5,7 +5,11 @@ from pathlib import Path
 from model_utils import get_random_walk_noise_for_position_sequence
 from tf_data_reader import prepare_data_from_tfds
 
+# from data_reader import SimulationDataset
+
 from torch.utils.tensorboard import SummaryWriter
+from torch.utils.data import DataLoader
+
 
 
 batch_size = 2
@@ -37,19 +41,30 @@ def train(
     optimizer = torch.optim.Adam(simulator.parameters(), lr=lr_init)
 
     ds = prepare_data_from_tfds(data_path=data_path, batch_size=batch_size)
+    # ds = SimulationDataset(device=device, mode='train', window_size=6)
+    # data_loader = DataLoader(ds, batch_size=1, shuffle=True)
 
+    
     step = 0
     try:
         running_loss = 0.0
         for features, labels in ds:
+            # batch_size, num_particles, window_size, pos_dim = features.shape
+
+            # n_particles_per_example = [num_particles for _ in range(batch_size)]
+            
+            # position_sequence = features.view(-1, window_size, pos_dim)
+            # next_position = labels.view(-1, pos_dim)
+            # particle_types = torch.full((position_sequence.shape[0],), 5).to(device)
+            # sampled_noise = get_random_walk_noise_for_position_sequence(position_sequence, noise_std_last_step=noise_std).to(device)
+            # non_kinematic_mask = (particle_types != 3).clone().detach().to(device)
             features['position'] = torch.tensor(features['position']).to(device)
             features['n_particles_per_example'] = torch.tensor(features['n_particles_per_example']).to(device)
             features['particle_type'] = torch.tensor(features['particle_type']).to(device)
             labels = torch.tensor(labels).to(device)
-
             sampled_noise = get_random_walk_noise_for_position_sequence(features['position'], noise_std_last_step=noise_std).to(device)
             non_kinematic_mask = (features['particle_type'] != 3).clone().detach().to(device)
-            sampled_noise *= non_kinematic_mask.view(-1, 1, 1)
+            sampled_noise *= non_kinematic_mask.reshape(-1, 1, 1)
 
             pred, target = simulator.get_predicted_and_target_normalized_accelerations(
                 next_position=labels, 
@@ -58,6 +73,13 @@ def train(
                 n_particles_per_example=features['n_particles_per_example'], 
                 particle_types=features['particle_type'],
             )
+            # pred, target = simulator.get_predicted_and_target_normalized_accelerations(
+            #     next_position=next_position, 
+            #     position_sequence_noise=sampled_noise, 
+            #     position_sequence=position_sequence, 
+            #     n_particles_per_example=n_particles_per_example, 
+            #     particle_types=particle_types,
+            # )
             loss = (pred - target) ** 2
             loss = loss.sum(dim=-1)
             num_non_kinematic = non_kinematic_mask.sum()    
