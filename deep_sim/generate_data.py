@@ -23,7 +23,7 @@ def main():
     num_simulations = 1
     scenes_path = "/Users/rafajm/.pyenv/versions/3.9.2/envs/simulation/bin/data/Scenes"
     file_path = "DamBreakModel_2D.json"
-    output_dir_base = "/Users/rafajm/code/rwth/thesis/master_thesis/deep_sim/data/test"
+    output_dir_base = "/Users/rafajm/code/rwth/thesis/master_thesis/deep_sim/data/valid"
 
     with open(os.path.join(scenes_path, file_path), 'r') as f:
         original_data = json.load(f)
